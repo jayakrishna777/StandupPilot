@@ -1,4 +1,19 @@
-"""Jira Cloud REST v3 adapter implementing JiraReader plus transition execution.
+"""Jira Cloud REST API v3 adapter."""
 
-Owner: Developer C (C3).
-"""
+from standup_pilot.jira.client import (
+    JiraAdapterError,
+    JiraClient,
+    JiraConfigurationError,
+    JiraIssueNotFoundError,
+    JiraPermissionError,
+    JiraTransitionError,
+)
+
+__all__ = [
+    "JiraAdapterError",
+    "JiraClient",
+    "JiraConfigurationError",
+    "JiraIssueNotFoundError",
+    "JiraPermissionError",
+    "JiraTransitionError",
+]
