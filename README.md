@@ -123,6 +123,10 @@ the setup guide.
 Module ownership and integration boundaries are documented in
 [docs/OWNERSHIP.md](docs/OWNERSHIP.md).
 
+The Ticket 01 baseline includes a health-only FastAPI shell and a placeholder-only
+Streamlit shell. The extension directory declares its Node.js 20+ toolchain; caption
+capture and delivery are implemented in the later meeting-bridge ticket.
+
 ## Development and verification
 
 ```bash

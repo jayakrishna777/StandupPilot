@@ -20,6 +20,7 @@ from standup_pilot.contracts import (
     ActionOutcome,
     ActionResult,
     AgentOutput,
+    AuthenticatedReviewer,
     CaptionEvent,
     InferenceSource,
     Proposal,
@@ -85,6 +86,24 @@ def test_caption_event_create_derives_its_identifier():
     event = CaptionEvent.create(SESSION, "Asha", "SP-1 is fixed", MOMENT)
     assert event.event_id == build_event_id(SESSION, "Asha", "SP-1 is fixed", MOMENT)
     assert event.captured_at.tzinfo is not None
+
+
+def test_caption_event_allows_an_unknown_displayed_speaker():
+    event = CaptionEvent.create(SESSION, None, "SP-1 is fixed", MOMENT)
+
+    assert event.speaker_label is None
+
+
+def test_authenticated_reviewer_preserves_verified_identity_fields():
+    reviewer = AuthenticatedReviewer(
+        subject="auth0|abc123",
+        email="Reviewer@example.com",
+        display_name="Review User",
+    )
+
+    assert reviewer.subject == "auth0|abc123"
+    assert reviewer.email == "Reviewer@example.com"
+    assert reviewer.display_name == "Review User"
 
 
 def test_caption_event_rejects_naive_timestamps():

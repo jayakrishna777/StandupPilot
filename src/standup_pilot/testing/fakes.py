@@ -12,6 +12,7 @@ from datetime import datetime
 from standup_pilot.contracts import (
     ActionOutcome,
     ActionResult,
+    AuthenticatedReviewer,
     CaptionEvent,
     Proposal,
     ProposalState,
@@ -49,6 +50,49 @@ class InMemoryCaptionStore:
             (e for e in self._events.values() if e.meeting_session_id == meeting_session_id),
             key=lambda e: (e.captured_at, e.event_id),
         )
+
+
+class StubCaptionReceiver:
+    """Contract receiver fake for extension delivery tests.
+
+    It intentionally does not authenticate, persist to PostgreSQL, or invoke any
+    downstream feature; those responsibilities belong to later tickets.
+    """
+
+    def __init__(self) -> None:
+        self._events: dict[str, CaptionEvent] = {}
+
+    @property
+    def events(self) -> list[CaptionEvent]:
+        return list(self._events.values())
+
+    def receive_caption(
+        self, event: CaptionEvent, session_token: str | None = None
+    ) -> CaptionEvent:
+        del session_token
+        return self._events.setdefault(event.event_id, event)
+
+
+class StubReviewerAuthorizer:
+    """Reviewer allow-list fake for UI tests before Auth0 is connected."""
+
+    def __init__(self, reviewers: frozenset[str] | set[str]) -> None:
+        self._reviewers = frozenset(value.strip().lower() for value in reviewers if value.strip())
+
+    def is_authorized(self, reviewer: AuthenticatedReviewer | None) -> bool:
+        return reviewer is not None and reviewer.identity.lower() in self._reviewers
+
+
+class FakeReviewerIdentity:
+    """Small authenticated-claim fixture used by boundary tests."""
+
+    def __init__(
+        self,
+        subject: str = "auth0|reviewer",
+        email: str | None = "reviewer@example.com",
+        display_name: str | None = "Review User",
+    ) -> None:
+        self.claims = AuthenticatedReviewer(subject=subject, email=email, display_name=display_name)
 
 
 class InMemoryProposalStore:

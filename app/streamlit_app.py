@@ -1,102 +1,75 @@
-"""StandupPilot Streamlit review interface (ticket B1: application shell).
+"""Minimal Streamlit shell for the contract-first foundation.
 
-Importing this module must never perform an external call - Streamlit re-executes the
-whole script on every interaction and on every fragment refresh, so anything that hits
-the network belongs inside a function, not at module scope.
+The shell intentionally renders placeholders only. It does not connect to PostgreSQL,
+FastAPI, OpenRouter, Jira, Auth0, or any other external service; later tickets own those
+behaviors and may replace the placeholders behind the frozen contracts.
 """
 
 from __future__ import annotations
 
-import httpx
-import streamlit as st
-
-from standup_pilot.contracts import UI_REFRESH_SECONDS
-from standup_pilot.settings import get_settings
-from standup_pilot.testing.fakes import InMemoryProposalStore, StubActionService
-
-st.set_page_config(page_title="StandupPilot", page_icon="🧭", layout="wide")
-
-settings = get_settings()
-
-# TEMPORARY SCAFFOLD: session-scoped fakes stand in for Developer C's PostgreSQL-backed
-# ProposalStore and ActionService (tickets C1/C4) until that branch merges. They let the
-# shell, the approve/reject controls, and the refresh loop be built and clicked through
-# right now, against the same frozen ActionService interface the real one will satisfy.
-if "proposal_store" not in st.session_state:
-    st.session_state.proposal_store = InMemoryProposalStore()
-if "action_service" not in st.session_state:
-    st.session_state.action_service = StubActionService(
-        settings.reviewers or frozenset({"demo@example.com"}), st.session_state.proposal_store
-    )
-
-st.title("🧭 StandupPilot")
-st.caption(
-    "Meeting captions → evidence-backed Jira proposal → authorized approval → verified result"
+APP_TITLE = "StandupPilot"
+SHELL_STATUS = "foundation shell"
+PLACEHOLDER_REGIONS = (
+    "service",
+    "meeting session",
+    "authentication",
+    "live transcript",
+    "proposal",
+    "action result",
 )
 
 
-def _check_api() -> tuple[bool, str]:
-    try:
-        response = httpx.get(f"{settings.api_base_url}/healthz", timeout=2.0)
-        response.raise_for_status()
-        return True, "connected"
-    except httpx.HTTPError as exc:
-        return False, f"unreachable ({exc.__class__.__name__})"
+def main() -> None:
+    """Render the import-safe foundation UI."""
+    import streamlit as st
 
+    st.set_page_config(page_title=APP_TITLE, page_icon="🎙️", layout="wide")
+    st.title(APP_TITLE)
+    st.caption(
+        "Contract-first foundation shell — production integrations are added in later tickets."
+    )
 
-@st.fragment(run_every=UI_REFRESH_SECONDS)
-def connection_status() -> None:
-    api_ok, api_detail = _check_api()
-    cols = st.columns(3)
-    cols[0].metric("FastAPI", "up" if api_ok else "down", api_detail)
-    cols[1].metric("Meeting session", "not started")
-    cols[2].metric(
-        "Reviewer",
-        "signed in" if st.session_state.get("reviewer_identity") else "not signed in",
+    st.subheader("Service")
+    service_col, session_col, auth_col = st.columns(3)
+    service_col.metric("FastAPI", "Placeholder")
+    service_col.caption("Health-only shell at http://localhost:8000")
+    session_col.metric("Meeting session", "Not connected")
+    session_col.caption("Session controls are reserved for the meeting bridge.")
+    auth_col.metric("Authentication", "Not configured")
+    auth_col.caption("Auth0 reviewer authorization is reserved for the action service.")
+
+    st.subheader("Meeting session")
+    st.text_input(
+        "Active session",
+        value="No meeting session active",
+        disabled=True,
+        help="The foundation shell does not create or authenticate meeting sessions.",
+    )
+    start_col, stop_col = st.columns(2)
+    start_col.button("Start caption forwarding", disabled=True, use_container_width=True)
+    stop_col.button("Stop caption forwarding", disabled=True, use_container_width=True)
+    st.info("Caption forwarding is not enabled in the foundation shell.")
+
+    st.subheader("Authentication")
+    st.info(
+        "Sign-in and reviewer authorization are placeholders until the action service is "
+        "integrated."
+    )
+
+    st.subheader("Live transcript")
+    st.info("No captions received. The production caption boundary is added in a later ticket.")
+
+    st.subheader("Proposal")
+    st.info(
+        "No proposal available. Ticket, Jira state, target state, evidence, and inference source "
+        "will appear here."
+    )
+
+    st.subheader("Action result")
+    st.info(
+        "No action result. Approval and Jira mutation are intentionally unavailable in this shell."
     )
 
 
-st.subheader("Connection")
-connection_status()
-
-st.subheader("Live transcript")
-st.info("No captions received yet. Start the extension and a meeting session to see them here.")
-
-st.subheader("Proposal")
-open_proposal = st.session_state.proposal_store.open_proposal(meeting_session_id="demo-session")
-if open_proposal is None:
-    st.write("No pending proposal.")
-else:
-    st.markdown(f"**{open_proposal.ticket_key}** — {open_proposal.snapshot.title}")
-    st.write(f"Current status: `{open_proposal.snapshot.current_status}`")
-    st.write(f"Proposed status: `{open_proposal.proposed_target_status}`")
-    st.write(f"Evidence: “{open_proposal.evidence_text}”")
-    st.caption(f"Source: {open_proposal.inference_source.value}")
-
-    reviewer_identity = st.text_input(
-        "Reviewer identity (placeholder until Auth0 login lands - ticket C4)",
-        value="demo@example.com",
-    )
-    approve_col, reject_col = st.columns(2)
-    if approve_col.button("Approve", type="primary"):
-        try:
-            result = st.session_state.action_service.approve(
-                open_proposal.proposal_id, reviewer_identity
-            )
-            st.session_state["last_result"] = result
-        except PermissionError:
-            st.error("This identity is not on the reviewer allow-list.")
-    if reject_col.button("Reject"):
-        st.session_state.proposal_store.set_state(
-            open_proposal.proposal_id, "rejected", reviewer_identity
-        )
-
-st.subheader("Action result")
-last_result = st.session_state.get("last_result")
-if last_result is None:
-    st.write("No action taken yet.")
-elif last_result.succeeded:
-    ticket_key = open_proposal.ticket_key if open_proposal else ""
-    st.success(f"Verified: {ticket_key} → {last_result.verified_status}")
-else:
-    st.error(f"{last_result.outcome.value}: {last_result.message}")
+if __name__ == "__main__":
+    main()
