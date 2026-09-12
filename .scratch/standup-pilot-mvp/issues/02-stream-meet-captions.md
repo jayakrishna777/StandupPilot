@@ -25,4 +25,3 @@
 - [ ] Browser-fixture tests cover stabilization, per-speaker separation, deduplication, event construction, delivery retry, and duplicate acceptance.
 - [ ] A two-device Google Meet check confirms the expected displayed name and completed sentence arrive once.
 - [ ] Participants are informed that captions are being captured before the live qualification begins.
-

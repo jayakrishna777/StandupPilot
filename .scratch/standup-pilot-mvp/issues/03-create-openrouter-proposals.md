@@ -30,4 +30,3 @@
 - [ ] Manual Speak controls remain available when browser autoplay is blocked.
 - [ ] Caption interpretation can be suppressed while StandupPilot speech is active to prevent feedback.
 - [ ] Automated tests cover selection, non-selection, valid structured output, schema failures, key mismatch, unsupported targets, timeout, rate limit, provider failure, fallback, and non-mutation.
-
