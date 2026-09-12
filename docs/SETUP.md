@@ -26,6 +26,8 @@ Variants:
 ## Prerequisites
 
 - Python 3.11 or newer, with `python3-venv`.
+- Node.js 20 or newer and npm, for the vanilla Chrome Manifest V3 toolchain in
+  `extension/package.json`.
 - A running local PostgreSQL server. Check and start it with:
 
   ```bash
@@ -63,6 +65,17 @@ source .venv/bin/activate
 ```
 
 Both addresses are frozen contracts; the extension and the tests depend on them.
+
+The Ticket 01 foundation API intentionally exposes only `GET /healthz`, and the
+Streamlit process renders placeholders. Caption forwarding, persistence, Jira, and
+Auth0 behavior are added by later tickets.
+
+To run the extension toolchain smoke command before the bridge exists:
+
+```bash
+cd extension
+npm test
+```
 
 ## Tests
 

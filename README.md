@@ -41,6 +41,10 @@ Full instructions, prerequisites, and the list of secrets to supply: [docs/SETUP
 Module ownership during the parallel build: [docs/OWNERSHIP.md](docs/OWNERSHIP.md).
 Specification and plan: [docs/specs/](docs/specs/).
 
+The Ticket 01 baseline includes a health-only FastAPI shell and a placeholder-only
+Streamlit shell. The extension directory declares its Node.js 20+ toolchain; caption
+capture and delivery are implemented in the later meeting-bridge ticket.
+
 ## Tests
 
 ```bash

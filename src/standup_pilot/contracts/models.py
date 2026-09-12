@@ -2,7 +2,8 @@
 
 FROZEN IN PHASE 0. These models are the only payload shapes crossing developer
 boundaries: extension -> API (CaptionEvent), agent -> application (AgentOutput),
-application -> UI (TicketSnapshot, Proposal, ActionResult).
+application -> UI (TicketSnapshot, Proposal, ActionResult), with authenticated reviewer
+claims kept separate from displayed speaker labels.
 
 Changing a field requires agreement from all three developers.
 """
@@ -35,7 +36,7 @@ def utc_now() -> datetime:
 
 def build_event_id(
     meeting_session_id: str,
-    speaker_label: str,
+    speaker_label: str | None,
     text: str,
     captured_at: datetime,
     bucket_seconds: int = EVENT_ID_TIME_BUCKET_SECONDS,
@@ -52,7 +53,7 @@ def build_event_id(
         "\x1f".join(
             [
                 meeting_session_id.strip(),
-                speaker_label.strip(),
+                (speaker_label or "").strip(),
                 " ".join(text.split()).casefold(),
                 str(bucket),
             ]
@@ -74,7 +75,7 @@ class CaptionEvent(_Frozen):
 
     event_id: str = Field(min_length=8, max_length=64)
     meeting_session_id: str = Field(min_length=1, max_length=64)
-    speaker_label: str = Field(min_length=1, max_length=MAX_SPEAKER_LABEL_CHARS)
+    speaker_label: str | None = Field(default=None, max_length=MAX_SPEAKER_LABEL_CHARS)
     text: str = Field(min_length=1, max_length=MAX_CAPTION_CHARS)
     captured_at: datetime
 
@@ -89,11 +90,15 @@ class CaptionEvent(_Frozen):
     def create(
         cls,
         meeting_session_id: str,
-        speaker_label: str,
-        text: str,
+        speaker_label: str | None = None,
+        text: str | None = None,
         captured_at: datetime | None = None,
     ) -> CaptionEvent:
         """Build an event with the derived stable identifier."""
+        if text is None:
+            text, speaker_label = speaker_label, None
+        if text is None:
+            raise ValueError("caption text is required")
         moment = captured_at or utc_now()
         return cls(
             event_id=build_event_id(meeting_session_id, speaker_label, text, moment),
@@ -130,6 +135,24 @@ class AgentOutput(_Frozen):
         if not JIRA_KEY_PATTERN.fullmatch(key):
             raise ValueError(f"not a Jira issue key: {value!r}")
         return key
+
+
+class AuthenticatedReviewer(_Frozen):
+    """Verified application identity used for approval authorization.
+
+    The Auth0 subject is the stable identity. Email and display name are claims that
+    may be shown or matched against the configured reviewer allow-list; neither is a
+    Google Meet speaker label.
+    """
+
+    subject: str = Field(min_length=1, max_length=256)
+    email: str | None = Field(default=None, max_length=320)
+    display_name: str | None = Field(default=None, max_length=120)
+
+    @property
+    def identity(self) -> str:
+        """Canonical allow-list identity, preferring the verified email claim."""
+        return self.email.lower() if self.email else self.subject
 
 
 class TicketSnapshot(_Frozen):
