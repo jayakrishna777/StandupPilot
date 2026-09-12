@@ -9,7 +9,7 @@ This plan implements the decisions in `standup-pilot-mvp-spec.md`. The implement
 ## Global Constraints
 
 - Preserve the fixed scope: one Google Meet meeting, one Jira project, one explicit ticket key, and one approved status transition.
-- Use the modified Google Meet CC Capturer fork for caption input.
+- Use a modified fork of `https://github.com/yunho0130/google-meet-cc-to-srt` at pinned upstream revision `c7e649ceffde719fd66b319460b62a5ca56df890` for caption input.
 - Use Streamlit for the interface and Auth0 OIDC login.
 - Use FastAPI for caption ingestion and the installed local PostgreSQL 16 server for shared persistence. Do not add a SQLite fallback.
 - Use OpenRouter for model inference with a configurable model and `openrouter/free` as the zero-cost default.
@@ -71,18 +71,19 @@ flowchart TD
 
 ### Required outcomes
 
-1. Create the Python project scaffold and dependency manifest.
-2. Create the extension, application, package, migration, test, and script directories.
-3. Create example configuration files with placeholder values and ignore all real secret files.
-4. Define and test the shared caption-event, proposal, and action-result contracts.
-5. Freeze the caption endpoint as `POST http://localhost:8000/v1/captions`.
-6. Freeze the extension authentication header as `X-RoomRelay-Session` for compatibility with the existing design discussion; the product name presented to users remains StandupPilot.
-7. Freeze the Streamlit address as `http://localhost:8501` and FastAPI address as `http://localhost:8000`.
-8. Freeze proposal states as pending, approved, rejected, stale, executed, and failed.
-9. Define interfaces for caption storage, proposal storage, ticket reads, allowed transitions, and approved execution.
-10. Run the contract tests and obtain a passing result.
-11. Commit the baseline with `chore: scaffold StandupPilot and freeze integration contracts`.
-12. Record the baseline commit hash. All three branches start from this exact commit.
+1. Create the Python and extension project scaffolds and dependency manifests without implementing production persistence, caption ingestion, Jira calls, or Auth0 authorization.
+2. Create example configuration files with placeholder values and ignore all real secret files.
+3. Define and test the shared caption-event, proposal, agent-output, authenticated-reviewer, and action-result contracts.
+4. Freeze the caption endpoint as `POST http://localhost:8000/v1/captions`.
+5. Freeze the extension authentication header as `X-StandupPilot-Session`.
+6. Freeze the Streamlit address as `http://localhost:8501` and FastAPI address as `http://localhost:8000`.
+7. Freeze proposal states as pending, approved, rejected, stale, executed, and failed.
+8. Define interfaces for caption receipt, caption storage, proposal storage, ticket reads, allowed transitions, reviewer authorization, and approved execution.
+9. Supply test doubles for the caption receiver, storage, Jira reads, reviewer identity, and action service so each feature branch can demonstrate its owned behavior without another branch.
+10. Provide a minimal Streamlit shell and FastAPI health response only; do not create the production caption route or PostgreSQL migrations in the baseline.
+11. Run the contract and shell smoke tests and obtain a passing result.
+12. Commit the baseline with `chore: scaffold StandupPilot and freeze integration contracts`.
+13. Record the baseline commit hash. All three branches start from this exact commit.
 
 ### Branches
 
@@ -98,7 +99,7 @@ flowchart TD
 
 ### A1: Import and attribute the caption project
 
-1. Import the current Google Meet CC Capturer source into the extension module.
+1. Import Google Meet CC Capturer from `https://github.com/yunho0130/google-meet-cc-to-srt` at revision `c7e649ceffde719fd66b319460b62a5ca56df890` into the extension module.
 2. Preserve the upstream copyright and complete license.
 3. Add a visible statement that the extension is derived from Google Meet CC Capturer.
 4. Add a changelog entry listing all StandupPilot modifications.
@@ -133,12 +134,12 @@ flowchart TD
 
 ### A4: Qualify against Google Meet
 
-1. Start FastAPI and clear the demo session.
+1. Start the baseline contract receiver and clear its received-event log.
 2. Join from two devices with distinct displayed names.
 3. Enable captions before speaking.
 4. Speak the fixed demo sentence from the second device.
-5. Verify the backend receives one finalized event with the correct displayed name.
-6. Restart FastAPI and verify queued delivery resumes without duplicates.
+5. Verify the contract receiver receives one finalized event with the correct displayed name.
+6. Restart the contract receiver and verify queued delivery resumes without duplicates.
 7. Start and stop extension forwarding twice.
 8. Record pass or fail evidence for each check.
 9. Commit fixes only, using `fix(extension): stabilize live Meet delivery`.
@@ -156,9 +157,9 @@ flowchart TD
 3. Add connection and authentication status areas.
 4. Add a live transcript region.
 5. Add a proposal region containing ticket, current Jira state, target state, evidence, and inference source.
-6. Add Approve and Reject controls wired only to the frozen action-service interface.
+6. Add Approve and Reject controls wired only to the baseline fake action-service and reviewer-identity interfaces; real Auth0 and Jira wiring occurs during integration.
 7. Add an action-result region.
-8. Refresh the transcript and proposal regions every second using a Streamlit fragment.
+8. Refresh the transcript and proposal regions every one second using a Streamlit fragment.
 9. Run the smoke test.
 10. Commit with `feat(ui): add Streamlit review interface`.
 
@@ -178,11 +179,11 @@ flowchart TD
 1. Write a fake OpenRouter transport returning a valid structured interpretation.
 2. Write tests for invalid JSON, schema violations, timeouts, rate limits, and a returned ticket key that differs from the caption.
 3. Configure the API key, model slug, site URL, and application title exclusively through server configuration.
-4. Call the OpenRouter chat-completions endpoint with a strict JSON schema request.
+4. Call the OpenRouter chat-completions endpoint with model `openrouter/free` by default and a strict JSON schema request.
 5. Set temperature to zero, a short timeout, and at most one retry.
 6. Validate the response with the frozen agent-output contract.
 7. Reject mismatched ticket keys and unexpected target states.
-8. Convert valid output into a pending proposal only after the Jira-read interface supplies current state and allowed transitions.
+8. Convert valid output into a pending proposal only after the baseline fake Jira-read interface supplies current state and allowed transitions; the real adapter replaces it during integration.
 9. Run focused agent tests.
 10. Commit with `feat(agent): create structured proposals through OpenRouter`.
 
@@ -224,10 +225,10 @@ flowchart TD
 
 1. Write API tests for accepted events, invalid bodies, missing tokens, invalid tokens, inactive sessions, oversized captions, and duplicates.
 2. Implement the health endpoint.
-3. Implement the frozen caption endpoint.
-4. Validate the meeting-session token without logging it.
-5. Store the event and return HTTP 202.
-6. Do not call OpenRouter or Jira inside the ingestion request.
+3. Implement `POST http://localhost:8000/v1/captions` using the `X-StandupPilot-Session` header.
+4. Validate the meeting-session token without logging it and reject missing, invalid, or inactive sessions.
+5. Validate caption size and schema, store the event idempotently, and return HTTP 202 only after durable acceptance.
+6. Prove the ingestion request does not call OpenRouter or Jira.
 7. Run API and storage tests.
 8. Commit with `feat(api): accept authenticated caption events`.
 
@@ -240,16 +241,17 @@ flowchart TD
 5. Select transitions by exact target status and returned transition identifier.
 6. Implement transition execution.
 7. Keep Jira URL, user, and API token in server configuration.
-8. Redact authorization headers from logs and exceptions.
-9. Run focused tests.
-10. Commit with `feat(jira): read and transition configured Jira issues`.
+8. Restrict the Jira integration account to the permissions required for the fictional demonstration project and transition operation.
+9. Redact authorization headers from logs and exceptions.
+10. Run focused tests.
+11. Commit with `feat(jira): read and transition configured Jira issues`.
 
 ### C4: Implement Auth0 and safe approval
 
-1. Add an example Streamlit OIDC configuration for Auth0 without real credentials.
+1. Add an example Streamlit OIDC configuration for Auth0 without real credentials and implement the reviewer-authorization policy against the frozen authenticated-reviewer contract without modifying Streamlit layout.
 2. Write tests for missing login, authenticated but unauthorized identities, authorized approval, rejection, stale proposals, repeated approval, denied transitions, and uncertain write outcomes.
-3. Require Streamlit login before displaying mutation controls.
-4. Compare the authenticated identity against the configured reviewer allow-list.
+3. Require authenticated reviewer claims at the action-service boundary and reject missing claims.
+4. Compare the authenticated identity against the configured reviewer allow-list; integration connects Streamlit's `st.user` claims to this boundary.
 5. Store reviewer identity and decision time with the proposal.
 6. On approval, reload the proposal and require pending state.
 7. Re-read the Jira ticket and compare it with the proposal snapshot.
@@ -326,16 +328,17 @@ After the merge:
 
 1. Start FastAPI and Streamlit with a fresh demo database.
 2. Activate a meeting session and copy its limited session token into the extension.
-3. Post a synthetic actionable caption through the extension boundary.
-4. Verify HTTP 202 and one persisted caption event.
-5. Verify the Streamlit transcript updates within two seconds.
-6. Verify the prefilter selects the event.
-7. Verify OpenRouter returns a validated interpretation or the clearly labelled fallback activates.
-8. Verify the proposal shows original evidence, real Jira title, current status, and an allowed target state.
+3. Post a synthetic actionable caption through the extension boundary to `POST /v1/captions` using `X-StandupPilot-Session`.
+4. Verify missing, invalid, and inactive session credentials are rejected and never invoke OpenRouter or Jira.
+5. Verify a valid event returns HTTP 202 only after one durable PostgreSQL record exists.
+6. Verify the one-second Streamlit fragment displays the caption within two seconds.
+7. Verify the prefilter selects the event.
+8. Verify OpenRouter returns a validated interpretation or the clearly labelled fallback activates.
+9. Verify the proposal shows original evidence, real Jira title, current status, and an allowed target state.
 
 ### I2: Approval to verified Jira result
 
-1. Sign into Streamlit through Auth0 as an authorized reviewer.
+1. Sign into Streamlit through Auth0 and connect the resulting `st.user` claims to the frozen reviewer-authorization boundary.
 2. Approve the pending proposal.
 3. Verify the action service re-reads Jira.
 4. Verify it discovers the allowed transition again.

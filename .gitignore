@@ -53,7 +53,7 @@ extension/*.zip
 *.swp
 
 # --- Local scratch ---
-.scratch/
+
 graphify-out/
 logs/
 *.log

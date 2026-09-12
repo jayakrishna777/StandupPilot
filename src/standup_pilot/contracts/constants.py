@@ -21,7 +21,7 @@ HEALTH_ENDPOINT_PATH: Final[str] = "/healthz"
 # Header carrying the limited meeting-session token sent by the Chrome extension.
 # The name is kept for compatibility with the original design discussion; the product
 # name shown to users is StandupPilot.
-SESSION_TOKEN_HEADER: Final[str] = "X-RoomRelay-Session"
+SESSION_TOKEN_HEADER: Final[str] = "X-StandupPilot-Session"
 
 # Accepted caption event is recorded durably and acknowledged with 202. No inference
 # happens inside the ingestion request.

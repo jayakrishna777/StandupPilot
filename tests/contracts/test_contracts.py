@@ -38,7 +38,7 @@ MOMENT = datetime(2026, 9, 12, 10, 0, 0, tzinfo=UTC)
 
 def test_frozen_endpoint_and_header():
     assert CAPTION_ENDPOINT_PATH == "/v1/captions"
-    assert SESSION_TOKEN_HEADER == "X-RoomRelay-Session"
+    assert SESSION_TOKEN_HEADER == "X-StandupPilot-Session"
     assert CAPTION_ACCEPTED_STATUS == 202
     assert STREAMLIT_BASE_URL == "http://localhost:8501"
 
