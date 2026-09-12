@@ -1,0 +1,24 @@
+:root { color: #1f2937; background: #f8fafc; font: 13px/1.4 system-ui, sans-serif; }
+body { width: 330px; margin: 0; }
+main { padding: 16px; }
+h1 { margin: 0; font-size: 20px; }
+.subtitle { margin: 0 0 12px; color: #64748b; }
+.notice { margin: 0 0 14px; padding: 9px; border-radius: 7px; background: #fff7ed; color: #9a3412; }
+label { display: block; margin-top: 10px; font-weight: 600; }
+input:not([type="checkbox"]) { box-sizing: border-box; width: 100%; margin-top: 4px; padding: 7px; border: 1px solid #cbd5e1; border-radius: 5px; }
+.hint { margin: 3px 0; color: #64748b; font-size: 11px; }
+button { margin-top: 10px; border: 0; border-radius: 5px; padding: 7px 9px; background: #2563eb; color: white; cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .45; }
+.consent { margin: 14px 0 2px; font-weight: 400; }
+.consent input { margin-right: 5px; }
+.controls { display: flex; flex-wrap: wrap; gap: 6px; }
+.controls button { margin-top: 6px; }
+#stop { background: #475569; }
+#retry { background: #0f766e; }
+.status-card { margin: 14px 0 4px; padding: 9px; border-radius: 7px; background: white; }
+.status-card div { display: flex; justify-content: space-between; }
+dt { color: #64748b; }
+dd { margin: 0; font-weight: 600; }
+#message { min-height: 1.4em; margin: 7px 0; color: #475569; }
+footer { margin-top: 12px; color: #64748b; font-size: 10px; }
+a { color: #1d4ed8; }

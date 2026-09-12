@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "StandupPilot Meeting Bridge",
+  "version": "0.1.0",
+  "description": "Forward finalized native Google Meet captions to a local StandupPilot receiver.",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://meet.google.com/*",
+    "http://localhost:8000/*"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://meet.google.com/*"],
+      "js": [
+        "lib/contracts.js",
+        "lib/caption-stabilizer.js",
+        "content/caption-bridge.js"
+      ],
+      "css": ["content/caption-bridge.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "StandupPilot Meeting Bridge"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}

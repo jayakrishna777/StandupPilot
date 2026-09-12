@@ -7,6 +7,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test ../tests/extension/*.test.js",
+    "lint": "node --check lib/contracts.js && node --check lib/caption-stabilizer.js && node --check lib/delivery-queue.js && node --check content/caption-bridge.js && node --check background/service-worker.js && node --check popup/popup.js",
+    "build": "node --check background/service-worker.js"
   }
 }
