@@ -4,7 +4,9 @@
 set -euo pipefail
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-PY="${VIRTUAL_ENV:-.venv}/bin/python"
+# Always use this project's own venv, even if another virtualenv is already active in
+# the shell (a stray VIRTUAL_ENV from a different project silently imports nothing).
+PY="./.venv/bin/python"
 [[ -x "$PY" ]] || { echo "run ./scripts/setup.sh first" >&2; exit 1; }
 
 exec "$PY" -m uvicorn standup_pilot.api.main:app --host 127.0.0.1 --port 8000 --reload
