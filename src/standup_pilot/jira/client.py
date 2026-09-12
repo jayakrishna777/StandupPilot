@@ -64,6 +64,7 @@ class JiraClient:
             title=issue_fields["summary"],
             current_status=issue_fields["status"]["name"],
             version=issue_fields.get("updated"),
+            url=f"{self._settings.jira_base_url.rstrip('/')}/browse/{data['key']}",
         )
 
     def allowed_transitions(self, ticket_key: str) -> list[Transition]:
@@ -146,4 +147,3 @@ class JiraClient:
             joined_errors = "; ".join(f"{key}: {value}" for key, value in errors.items())
             detail = "; ".join(part for part in (detail, joined_errors) if part)
         return f"Jira request failed with HTTP {response.status_code}: {detail or 'no details'}"
-

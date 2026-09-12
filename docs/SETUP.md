@@ -13,10 +13,13 @@ git clone <repo> && cd StandupPilot
    example. Both are git-ignored; the script refuses to continue if `.env` is not ignored.
 2. Creates `.venv` and installs everything (app, agent, Streamlit UI, dev/test tooling)
    from `requirements.txt` with `pip`.
-3. Runs `scripts/check_setup.py` and the Phase 0 contract tests.
+3. Applies `migrations/*.sql` to `DATABASE_URL` (`scripts/migrate.py`), skipping with a
+   warning if the database isn't reachable yet - run it again once it is.
+4. Runs `scripts/check_setup.py` and the Phase 0 contract tests.
 
-It does not touch PostgreSQL. Point `DATABASE_URL` in `.env` at whatever local database
-you already have; each developer manages their own server and database.
+Point `DATABASE_URL` in `.env` at whatever local PostgreSQL server/database you already
+have; each developer manages their own server. `scripts/migrate.py` creates the schema
+in it (idempotent - safe to re-run).
 
 ## Prerequisites
 
@@ -62,11 +65,12 @@ source .venv/bin/activate
 
 Both addresses are frozen contracts; the extension and the tests depend on them.
 
-The Ticket 01 foundation API intentionally exposes only `GET /healthz`, and the
-Streamlit process renders placeholders. Caption forwarding, persistence, Jira, and
-Auth0 behavior are added by later tickets.
+`GET/POST /v1/captions` persist to PostgreSQL; Jira reads/writes and OpenRouter use
+real credentials when configured in `.env`, falling back to the Ticket 03 fakes
+otherwise. Auth0 login activates once `AUTH0_*` and `.streamlit/secrets.toml` are filled
+in; until then Streamlit uses a manual reviewer-identity field.
 
-To run the extension toolchain smoke command before the bridge exists:
+To run the extension toolchain smoke command:
 
 ```bash
 cd extension
@@ -82,7 +86,9 @@ pytest                          # full suite, including PostgreSQL storage tests
 ruff check . && ruff format --check .
 ```
 
-Storage tests use `TEST_DATABASE_URL` if set in `.env`, otherwise `DATABASE_URL`.
+Storage tests use `TEST_DATABASE_URL` if set in `.env`, otherwise `DATABASE_URL`, and are
+skipped entirely if neither is reachable. Apply migrations to whichever one you're
+testing against before running them: `python scripts/migrate.py` (or `--test`).
 
 ## Verifying a workstation
 

@@ -163,6 +163,8 @@ class TicketSnapshot(_Frozen):
     current_status: str
     version: str | None = None
     """Opaque Jira change marker (e.g. `fields.updated`). Compared, never parsed."""
+    url: str | None = None
+    """Browsable Jira issue link, shown to the reviewer. Optional and additive."""
     read_at: datetime = Field(default_factory=utc_now)
 
 

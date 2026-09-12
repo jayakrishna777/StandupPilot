@@ -61,7 +61,14 @@ say "Dependencies"
 echo "installed StandupPilot, the Streamlit UI, and dev dependencies"
 
 # ---------------------------------------------------------------------------
-# 3. Verification
+# 3. Database migrations
+# ---------------------------------------------------------------------------
+say "Migrations"
+"$VENV/bin/python" scripts/migrate.py \
+  || echo "  skipped: database not reachable yet - run scripts/migrate.py once it is"
+
+# ---------------------------------------------------------------------------
+# 4. Verification
 # ---------------------------------------------------------------------------
 say "Readiness check"
 "$VENV/bin/python" scripts/check_setup.py || die "readiness check failed"

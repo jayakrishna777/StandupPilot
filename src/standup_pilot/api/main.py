@@ -22,7 +22,7 @@ from standup_pilot.contracts import (
     CaptionStore,
 )
 from standup_pilot.settings import Settings, get_settings
-from standup_pilot.storage import InMemoryCaptionStore
+from standup_pilot.storage import InMemoryCaptionStore, PostgresCaptionStore
 
 
 def create_app(
@@ -100,6 +100,16 @@ def create_app(
     return api
 
 
-app = create_app()
+def create_default_app() -> FastAPI:
+    """Ticket 04 gap: the served app persists to PostgreSQL, not the in-memory fake.
 
-__all__ = ["app", "create_app"]
+    `create_app()`'s own default stays the in-memory store so tests (and any ad-hoc
+    `create_app()` call without a reachable database) never require one.
+    """
+    settings = get_settings()
+    return create_app(caption_store=PostgresCaptionStore(settings), settings=settings)
+
+
+app = create_default_app()
+
+__all__ = ["app", "create_app", "create_default_app"]
