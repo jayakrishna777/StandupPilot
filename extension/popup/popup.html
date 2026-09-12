@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>StandupPilot Meeting Bridge</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main>
+      <h1>StandupPilot</h1>
+      <p class="subtitle">Google Meet caption bridge</p>
+
+      <p class="notice">Native captions are shared with the local StandupPilot receiver. Inform meeting participants before starting.</p>
+
+      <form id="config-form">
+        <label for="meeting-session">Meeting session ID</label>
+        <input id="meeting-session" name="meetingSessionId" autocomplete="off" required maxlength="64" placeholder="demo-session">
+
+        <label for="session-token">Meeting-session token</label>
+        <input id="session-token" name="sessionToken" type="password" autocomplete="off" maxlength="512" placeholder="Leave blank to keep saved token">
+        <p id="token-state" class="hint">No token configured</p>
+
+        <button type="submit" id="save-config">Save configuration</button>
+      </form>
+
+      <label class="consent"><input id="consent" type="checkbox"> I have informed meeting participants.</label>
+
+      <div class="controls">
+        <button id="start" type="button" disabled>Start capture</button>
+        <button id="stop" type="button" disabled>Stop capture</button>
+        <button id="retry" type="button">Retry queued events</button>
+      </div>
+
+      <dl class="status-card">
+        <div><dt>Capture</dt><dd id="capture-status">Stopped</dd></div>
+        <div><dt>Delivery</dt><dd id="delivery-status">Disconnected</dd></div>
+        <div><dt>Queued</dt><dd id="queued-count">0</dd></div>
+      </dl>
+      <p id="message" role="status"></p>
+
+      <footer>
+        Derived from <a href="https://github.com/yunho0130/google-meet-cc-to-srt" target="_blank" rel="noreferrer">Google Meet CC Capturer</a> by Yunho Maeng; see the bundled license and changelog.
+      </footer>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "description": "Finalized-caption snapshots modeled on Google Meet CC Capturer's .nMcdL.bj4p3b items.",
+  "twoSpeakersSameText": [
+    { "speaker": "Asha", "text": "SP-1 is fixed" },
+    { "speaker": "Ben", "text": "SP-1 is fixed" }
+  ],
+  "partialGrowth": [
+    { "speaker": "Asha", "text": "SP-1 is" },
+    { "speaker": "Asha", "text": "SP-1 is fixed" }
+  ]
+}
