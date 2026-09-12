@@ -52,5 +52,10 @@ def test_configured_flags_follow_the_credentials():
     ).jira_configured
 
 
+def test_caption_ingress_requires_a_session_token():
+    assert not _settings().caption_ingress_configured
+    assert _settings(meeting_session_token="demo-token").caption_ingress_configured
+
+
 def test_free_model_is_the_default():
     assert _settings().openrouter_model == "openrouter/free"
