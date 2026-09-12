@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const { CaptionStabilizer, extractCaptionItems } = require('../../extension/lib/caption-stabilizer.js');
 const fixture = require('./fixtures/meet-caption-snapshots.json');
@@ -149,6 +151,7 @@ test('the same speaker may repeat the same sentence after the prior DOM row disa
   stabilizer.processCaptionItems(sentence);
   clock.advance(300);
   stabilizer.processCaptionItems([]);
+  clock.advance(5_000);
   stabilizer.processCaptionItems(sentence);
   clock.advance(300);
 
@@ -180,4 +183,11 @@ test('Meet fixture extraction preserves displayed speaker and finalized text', (
     { speaker: 'Asha', text: 'SP-1 is fixed' },
     { speaker: 'Ben', text: 'SP-2 is blocked' }
   ]);
+});
+
+test('HTML fixture documents the pinned Meet caption selectors', () => {
+  const html = fs.readFileSync(path.join(__dirname, 'fixtures', 'meet-caption-dom.html'), 'utf8');
+  assert.match(html, /nMcdL bj4p3b/);
+  assert.match(html, /NWpY1d/);
+  assert.match(html, /ygicle VbkSUe/);
 });

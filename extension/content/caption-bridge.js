@@ -216,7 +216,7 @@
         this.observer = null;
       }
       this.stabilizer?.stop();
-      await Promise.all([...this.pendingSends]);
+      await Promise.allSettled([...this.pendingSends]);
       const response = await this.sendMessage({ type: MESSAGE_TYPES.STOP_FORWARDING });
       this.capturing = false;
       this.forwarding = false;

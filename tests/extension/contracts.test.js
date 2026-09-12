@@ -75,4 +75,14 @@ test('invalid caption events are rejected before delivery', () => {
     }),
     /meetingSessionId/
   );
+  assert.throws(
+    () => contracts.assertCaptionEvent({
+      event_id: 'e'.repeat(32),
+      meeting_session_id: 'demo-session',
+      speaker_label: 'Asha',
+      text: 'SP-1 is fixed',
+      captured_at: null
+    }),
+    /captured_at/
+  );
 });

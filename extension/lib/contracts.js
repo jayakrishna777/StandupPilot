@@ -218,6 +218,7 @@
     if (typeof event.text !== 'string' || !event.text.trim() || event.text.length > MAX_CAPTION_CHARS) {
       throw new TypeError('text is invalid');
     }
+    if (typeof event.captured_at !== 'string') throw new TypeError('captured_at is invalid');
     const date = asDate(event.captured_at);
     if (date.toISOString() !== new Date(event.captured_at).toISOString()) throw new TypeError('captured_at is invalid');
     return event;

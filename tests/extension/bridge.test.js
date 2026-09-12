@@ -71,3 +71,25 @@ test('delivery status messages are reflected without exposing session tokens', a
   });
   assert.equal(JSON.stringify(controller.getStatus()).includes('token'), false);
 });
+
+test('stop completes even when a flushed caption cannot reach the background worker', async () => {
+  const chromeApi = makeChrome();
+  const sendMessage = chromeApi.runtime.sendMessage;
+  chromeApi.runtime.sendMessage = async (message) => {
+    if (message.type === 'SP_CAPTION_EVENT') throw new Error('background unavailable');
+    return sendMessage(message);
+  };
+  const controller = new CaptionBridgeController({
+    chromeApi,
+    documentApi: { body: null },
+    render: false,
+    stabilizationMs: 10_000
+  });
+
+  await controller.start({ consentAcknowledged: true });
+  controller.stabilizer.processCaptionItems([{ speaker: 'Asha', text: 'SP-1 is fixed' }]);
+  await controller.stop();
+
+  assert.equal(controller.capturing, false);
+  assert.ok(chromeApi.messages.some((message) => message.type === 'SP_STOP_FORWARDING'));
+});

@@ -77,6 +77,7 @@
       pendingCount: 0
     };
     let statusBroadcast = Promise.resolve();
+    let initializePromise = null;
     const queue = new DeliveryQueue({
       endpoint: options.endpoint || CAPTION_ENDPOINT_URL,
       storage,
@@ -105,20 +106,25 @@
       }
     }
 
-    async function initialize() {
-      const savedConfig = await storage.get(CONFIG_STORAGE_KEY);
-      if (savedConfig && typeof savedConfig === 'object') {
-        state.meetingSessionId = typeof savedConfig.meetingSessionId === 'string'
-          ? savedConfig.meetingSessionId.trim()
-          : '';
-        state.sessionToken = typeof savedConfig.sessionToken === 'string'
-          ? savedConfig.sessionToken.trim()
-          : '';
+    function initialize() {
+      if (!initializePromise) {
+        initializePromise = (async () => {
+          const savedConfig = await storage.get(CONFIG_STORAGE_KEY);
+          if (savedConfig && typeof savedConfig === 'object') {
+            state.meetingSessionId = typeof savedConfig.meetingSessionId === 'string'
+              ? savedConfig.meetingSessionId.trim()
+              : '';
+            state.sessionToken = typeof savedConfig.sessionToken === 'string'
+              ? savedConfig.sessionToken.trim()
+              : '';
+          }
+          await queue.initialize();
+          state.pendingCount = queue.pendingCount;
+          if (state.sessionToken && queue.pendingCount > 0) await queue.flush();
+          return status();
+        })();
       }
-      await queue.initialize();
-      state.pendingCount = queue.pendingCount;
-      if (state.sessionToken && queue.pendingCount > 0) await queue.flush();
-      return status();
+      return initializePromise;
     }
 
     function status() {
@@ -132,7 +138,7 @@
     }
 
     async function handleMessage(message, sender = {}) {
-      await queue.initialize();
+      await initialize();
       if (!message || typeof message.type !== 'string') return { ok: false, error: 'message type is required' };
 
       switch (message.type) {
