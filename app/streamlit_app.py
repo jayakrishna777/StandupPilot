@@ -1,75 +1,448 @@
-"""Minimal Streamlit shell for the contract-first foundation.
+"""StandupPilot Streamlit review interface (Ticket 03).
 
-The shell intentionally renders placeholders only. It does not connect to PostgreSQL,
-FastAPI, OpenRouter, Jira, Auth0, or any other external service; later tickets own those
-behaviors and may replace the placeholders behind the frozen contracts.
+Meeting captions -> deterministic prefilter -> OpenRouter (or rule-based fallback) ->
+fake Jira reads -> evidence-backed proposal -> reviewer approval -> action result.
+
+Ticket 03 scope only: storage, the Jira reader, and the reviewer/action services are all
+fakes (`standup_pilot.testing.fakes`); production PostgreSQL, the real Jira adapter, and
+Auth0 wiring are Ticket 05's job behind these same frozen interfaces. The model never
+gets a mutation path - `st.session_state.action_service` (a `StubActionService`) is the
+only thing `Approve` can call.
 """
 
 from __future__ import annotations
 
-APP_TITLE = "StandupPilot"
-SHELL_STATUS = "foundation shell"
-PLACEHOLDER_REGIONS = (
-    "service",
-    "meeting session",
-    "authentication",
-    "live transcript",
-    "proposal",
-    "action result",
+import json
+import time
+
+import httpx
+import streamlit as st
+import streamlit.runtime as st_runtime
+
+from standup_pilot.agent.demo_data import seed_demo_jira_reader
+from standup_pilot.agent.interpreter import prefilter_caption, process_next_caption
+from standup_pilot.agent.openrouter import OpenRouterClient
+from standup_pilot.agent.speech import (
+    format_proposal_announcement,
+    format_rejection_announcement,
+    format_result_announcement,
+)
+from standup_pilot.contracts import UI_REFRESH_SECONDS, CaptionEvent
+from standup_pilot.settings import get_settings
+from standup_pilot.testing.fakes import (
+    InMemoryCaptionStore,
+    InMemoryProposalStore,
+    StubActionService,
+)
+
+# Distinct regions ticket 03 requires: transcript evidence, pending proposal, approval
+# controls, and action result, plus the connection/session status carried over from the
+# foundation shell. Exercised by tests/ui/test_shell.py; keep in sync with the UI below.
+SHELL_STATUS = "review shell"
+REQUIRED_REGIONS = frozenset(
+    {
+        "connection status",
+        "live transcript",
+        "proposal",
+        "approval controls",
+        "action result",
+    }
+)
+
+RUNNING_UNDER_STREAMLIT = st_runtime.exists()
+
+st.set_page_config(
+    page_title="StandupPilot | Voice-enabled Stand-up Copilot",
+    page_icon="🧭",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+settings = get_settings()
+
+# -----------------------------------------------------------------------------
+# Custom CSS (dark glassmorphism)
+# -----------------------------------------------------------------------------
+st.markdown(
+    """
+    <style>
+    .stApp { background-color: #0d1117; color: #c9d1d9; font-family: 'Inter', sans-serif; }
+    .header-card {
+        background: linear-gradient(135deg, rgba(79,70,229,0.15) 0%, rgba(16,185,129,0.1) 100%);
+        border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 24px;
+        margin-bottom: 24px; backdrop-filter: blur(12px);
+        box-shadow: 0 8px 32px 0 rgba(0,0,0,0.37);
+    }
+    .live-badge {
+        display: inline-flex; align-items: center; background: rgba(239,68,68,0.2);
+        color: #f87171; border: 1px solid rgba(239,68,68,0.4); padding: 4px 12px;
+        border-radius: 9999px; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.05em;
+        text-transform: uppercase; animation: pulse 2s cubic-bezier(0.4,0,0.6,1) infinite;
+    }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .5; } }
+    .proposal-card {
+        background: rgba(22,27,34,0.8); border: 1px solid rgba(56,139,253,0.3);
+        border-radius: 12px; padding: 20px; margin-bottom: 16px;
+    }
+    .status-pill {
+        display: inline-block; padding: 4px 10px; border-radius: 6px;
+        font-weight: 600; font-size: 0.85rem;
+    }
+    .status-from {
+        background: rgba(234,179,8,0.2); color: #fde047; border: 1px solid rgba(234,179,8,0.3);
+    }
+    .status-to {
+        background: rgba(16,185,129,0.2); color: #34d399; border: 1px solid rgba(16,185,129,0.3);
+    }
+    .evidence-quote {
+        background: rgba(15,23,42,0.6); border-left: 4px solid #6366f1; padding: 12px 16px;
+        border-radius: 4px; font-style: italic; margin: 12px 0; color: #e2e8f0;
+    }
+    .speaker-tag { color: #818cf8; font-weight: 600; font-size: 0.9rem; }
+    div.stButton > button { border-radius: 8px; font-weight: 600; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# -----------------------------------------------------------------------------
+# Session-scoped fakes (Ticket 03 scope). Ticket 05 swaps these for the real
+# PostgreSQL-backed stores, Jira adapter, and Auth0-authorized action service behind
+# the same CaptionStore / ProposalStore / JiraReader / ActionService interfaces.
+# -----------------------------------------------------------------------------
+DEFAULT_REVIEWERS = frozenset({"demo@example.com"})
+
+
+def _fresh_demo_state() -> None:
+    st.session_state.caption_store = InMemoryCaptionStore()
+    st.session_state.proposal_store = InMemoryProposalStore()
+    st.session_state.jira_reader = seed_demo_jira_reader()
+    st.session_state.action_service = StubActionService(
+        settings.reviewers or DEFAULT_REVIEWERS, st.session_state.proposal_store
+    )
+    st.session_state.last_result = None
+    st.session_state.last_explanation = None
+    st.session_state.suppress_until = 0.0
+
+
+if "caption_store" not in st.session_state:
+    _fresh_demo_state()
+if "tts_enabled" not in st.session_state:
+    st.session_state.tts_enabled = True
+
+# Built once per session, only when a real key is configured; otherwise the pipeline
+# always falls through to the labelled rule-based interpreter.
+if "openrouter_client" not in st.session_state:
+    st.session_state.openrouter_client = (
+        OpenRouterClient(settings) if settings.openrouter_configured else None
+    )
+
+# Seed one golden-path caption the first time, through the same pipeline a real caption
+# would use, so the demo has something to review immediately.
+if not st.session_state.caption_store.recent_captions("demo-session") and RUNNING_UNDER_STREAMLIT:
+    st.session_state.caption_store.add_caption(
+        CaptionEvent.create("demo-session", "Alex Chen", "PROJ-123 is complete and ready for Done.")
+    )
+
+
+# -----------------------------------------------------------------------------
+# Browser speech synthesis - spoken text always comes from standup_pilot.agent.speech,
+# the same strings rendered on screen, so voice and display can never drift.
+# -----------------------------------------------------------------------------
+def speak_text(text: str, *, min_seconds: float = 2.0) -> None:
+    """Speak `text` and suppress caption processing for roughly as long as it takes."""
+    st.session_state.suppress_until = time.time() + max(min_seconds, len(text.split()) / 2.5)
+    if not st.session_state.tts_enabled:
+        return
+    st.html(
+        f"""
+        <script>
+        if ('speechSynthesis' in window) {{
+            window.speechSynthesis.cancel();
+            var utterance = new SpeechSynthesisUtterance({json.dumps(text)});
+            utterance.rate = 1.0;
+            window.speechSynthesis.speak(utterance);
+        }}
+        </script>
+        """,
+        unsafe_allow_javascript=True,
+    )
+
+
+def _check_api() -> tuple[bool, str]:
+    if not RUNNING_UNDER_STREAMLIT:
+        return False, "not running under Streamlit"
+    try:
+        response = httpx.get(f"{settings.api_base_url}/healthz", timeout=2.0)
+        response.raise_for_status()
+        return True, f"Connected ({settings.api_base_url})"
+    except httpx.HTTPError as exc:
+        return False, f"Offline ({exc.__class__.__name__})"
+
+
+# -----------------------------------------------------------------------------
+# Header
+# -----------------------------------------------------------------------------
+st.markdown(
+    """
+    <div class="header-card">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div>
+                <h1 style="margin:0; font-size:2.2rem; color:#ffffff;">🧭 StandupPilot</h1>
+                <p style="margin:4px 0 0 0; color:#94a3b8;">
+                    Caption ingress → AI proposal → authorized approval → verified Jira status
+                </p>
+            </div>
+            <span class="live-badge">🔴 Live Meeting Ingress</span>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+# -----------------------------------------------------------------------------
+# Sidebar: meeting session, authentication placeholder, and status
+# -----------------------------------------------------------------------------
+with st.sidebar:
+    st.title("Meeting Controls")
+    session_id = st.text_input("Active meeting session ID", value="demo-session")
+    reviewer_identity = st.text_input(
+        "Reviewer identity (Auth0 login lands in Ticket 05)", value="demo@example.com"
+    )
+
+    st.divider()
+    st.subheader("Status")
+    api_ok, api_detail = _check_api()
+    st.markdown(f"**FastAPI ingress**: {'🟢 ' + api_detail if api_ok else '🔴 ' + api_detail}")
+    if settings.openrouter_configured:
+        openrouter_status = f"🟢 {settings.openrouter_model}"
+    else:
+        openrouter_status = "🟡 not configured (rule-based fallback only)"
+    st.markdown(f"**OpenRouter**: {openrouter_status}")
+    if time.time() < st.session_state.suppress_until:
+        st.markdown("**Listening**: 🔇 paused while StandupPilot speaks")
+    else:
+        st.markdown("**Listening**: 🟢 active")
+
+    st.divider()
+    st.session_state.tts_enabled = st.checkbox(
+        "🔊 Enable text-to-speech announcements", value=st.session_state.tts_enabled
+    )
+    if st.button("🔄 Reset demo state", use_container_width=True):
+        _fresh_demo_state()
+        st.rerun()
+
+is_authorized = st.session_state.action_service.is_authorized(reviewer_identity)
+
+st.divider()
+
+# -----------------------------------------------------------------------------
+# Live regions: transcript, proposal + approval controls, action result.
+# One fragment, refreshed every UI_REFRESH_SECONDS, so a synthetic caption becomes a
+# visible proposal within two seconds without a full-page rerun.
+# -----------------------------------------------------------------------------
+tab_stream, tab_proposals, tab_audit, tab_demo = st.tabs(
+    ["🎙️ Live transcript", "⚡ Proposal & approval", "✅ Action result", "🛠️ Demo simulator"]
 )
 
 
-def main() -> None:
-    """Render the import-safe foundation UI."""
-    import streamlit as st
-
-    st.set_page_config(page_title=APP_TITLE, page_icon="🎙️", layout="wide")
-    st.title(APP_TITLE)
-    st.caption(
-        "Contract-first foundation shell — production integrations are added in later tickets."
+@st.fragment(run_every=UI_REFRESH_SECONDS)
+def live_regions() -> None:
+    suppress = time.time() < st.session_state.suppress_until
+    new_proposal, explanation = process_next_caption(
+        st.session_state.caption_store,
+        st.session_state.proposal_store,
+        st.session_state.jira_reader,
+        session_id,
+        openrouter_client=st.session_state.openrouter_client,
+        suppress=suppress,
     )
+    if explanation is not None:
+        st.session_state.last_explanation = explanation
+    if new_proposal is not None:
+        speak_text(format_proposal_announcement(new_proposal))
 
-    st.subheader("Service")
-    service_col, session_col, auth_col = st.columns(3)
-    service_col.metric("FastAPI", "Placeholder")
-    service_col.caption("Health-only shell at http://localhost:8000")
-    session_col.metric("Meeting session", "Not connected")
-    session_col.caption("Session controls are reserved for the meeting bridge.")
-    auth_col.metric("Authentication", "Not configured")
-    auth_col.caption("Auth0 reviewer authorization is reserved for the action service.")
+    recent_captions = st.session_state.caption_store.recent_captions(session_id, limit=100)
+    open_proposal = st.session_state.proposal_store.open_proposal(session_id)
 
-    st.subheader("Meeting session")
-    st.text_input(
-        "Active session",
-        value="No meeting session active",
-        disabled=True,
-        help="The foundation shell does not create or authenticate meeting sessions.",
-    )
-    start_col, stop_col = st.columns(2)
-    start_col.button("Start caption forwarding", disabled=True, use_container_width=True)
-    stop_col.button("Stop caption forwarding", disabled=True, use_container_width=True)
-    st.info("Caption forwarding is not enabled in the foundation shell.")
+    # --- live transcript ---
+    with tab_stream:
+        st.subheader("Live transcript")
+        st.caption("Captions forwarded from the Google Meet Chrome extension in real time.")
+        if not recent_captions:
+            st.info("No captions received yet in this session.")
+        else:
+            for caption in reversed(recent_captions):
+                actionable = prefilter_caption(caption.text)
+                captured_at_str = caption.captured_at.strftime("%H:%M:%S UTC")
+                border = "rgba(16,185,129,0.4)" if actionable else "rgba(255,255,255,0.05)"
+                bg = "rgba(16,185,129,0.05)" if actionable else "rgba(22,27,34,0.4)"
+                flag_style = "color:#34d399;font-size:0.8rem;font-weight:600;"
+                flag = (
+                    f'<span style="{flag_style}">⚡ Jira key + delivery language detected</span>'
+                    if actionable
+                    else ""
+                )
+                card_style = (
+                    f"background:{bg}; border:1px solid {border}; "
+                    "border-radius:8px; padding:12px 16px; margin-bottom:8px;"
+                )
+                st.markdown(
+                    f"""
+                    <div style="{card_style}">
+                        <div style="display:flex; justify-content:space-between;">
+                            <span class="speaker-tag">👤 {caption.speaker_label or "unknown"}</span>
+                            <span style="color:#64748b; font-size:0.8rem;">{captured_at_str}</span>
+                        </div>
+                        <div class="evidence-quote" style="margin:8px 0 4px 0;">
+                            “{caption.text}”
+                        </div>
+                        {flag}
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+        if st.session_state.last_explanation:
+            st.caption(f"Last agent decision: {st.session_state.last_explanation}")
 
-    st.subheader("Authentication")
-    st.info(
-        "Sign-in and reviewer authorization are placeholders until the action service is "
-        "integrated."
-    )
+    # --- proposal + approval controls ---
+    with tab_proposals:
+        st.subheader("Pending proposal")
+        st.caption(
+            "The model only proposes. Approve/Reject call the fake reviewer and action interfaces."
+        )
+        if open_proposal is None:
+            st.success("No pending proposal.")
+        else:
+            badge = (
+                f"{int(open_proposal.confidence * 100)}% · {open_proposal.inference_source.value}"
+            )
+            title = open_proposal.snapshot.title
+            current_status = open_proposal.snapshot.current_status
+            target_status = open_proposal.proposed_target_status
+            st.markdown(
+                f"""
+                <div class="proposal-card">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <h3 style="margin:0; color:#60a5fa;">🎫 {open_proposal.ticket_key}</h3>
+                        <span class="status-pill" style="background:rgba(99,102,241,0.2);
+                              color:#818cf8; border:1px solid rgba(99,102,241,0.4);">
+                            {badge}
+                        </span>
+                    </div>
+                    <h4 style="margin:8px 0 16px 0; color:#f1f5f9;">{title}</h4>
+                    <div style="display:flex; align-items:center; gap:16px; margin-bottom:16px;">
+                        <div>
+                            <span style="color:#94a3b8; font-size:0.85rem;">
+                                Current status
+                            </span><br/>
+                            <span class="status-pill status-from">{current_status}</span>
+                        </div>
+                        <div style="color:#64748b; font-size:1.5rem;">➔</div>
+                        <div>
+                            <span style="color:#94a3b8; font-size:0.85rem;">
+                                Proposed status
+                            </span><br/>
+                            <span class="status-pill status-to">{target_status}</span>
+                        </div>
+                    </div>
+                    <span style="color:#94a3b8; font-size:0.85rem; font-weight:600;">
+                        Spoken meeting evidence
+                    </span>
+                    <div class="evidence-quote">“{open_proposal.evidence_text}”</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
-    st.subheader("Live transcript")
-    st.info("No captions received. The production caption boundary is added in a later ticket.")
+            if st.button("🔊 Speak proposal", key="speak_proposal"):
+                speak_text(format_proposal_announcement(open_proposal))
 
-    st.subheader("Proposal")
-    st.info(
-        "No proposal available. Ticket, Jira state, target state, evidence, and inference source "
-        "will appear here."
-    )
+            if not is_authorized:
+                st.warning(
+                    f"`{reviewer_identity}` is not on the reviewer allow-list; approval disabled."
+                )
 
-    st.subheader("Action result")
-    st.info(
-        "No action result. Approval and Jira mutation are intentionally unavailable in this shell."
-    )
+            approve_col, reject_col = st.columns(2)
+            if approve_col.button(
+                "✅ Approve", type="primary", use_container_width=True, disabled=not is_authorized
+            ):
+                try:
+                    result = st.session_state.action_service.approve(
+                        open_proposal.proposal_id, reviewer_identity
+                    )
+                    st.session_state.last_result = (open_proposal.ticket_key, result)
+                    speak_text(format_result_announcement(open_proposal.ticket_key, result))
+                except PermissionError:
+                    st.error("This identity is not a configured reviewer.")
+            if reject_col.button("❌ Reject", use_container_width=True, disabled=not is_authorized):
+                try:
+                    st.session_state.action_service.reject(
+                        open_proposal.proposal_id, reviewer_identity
+                    )
+                    speak_text(format_rejection_announcement(open_proposal.ticket_key))
+                except PermissionError:
+                    st.error("This identity is not a configured reviewer.")
+
+    # --- action result ---
+    with tab_audit:
+        st.subheader("Action result")
+        last_result = st.session_state.last_result
+        if last_result is None:
+            st.info("No action taken yet.")
+        else:
+            ticket_key, result = last_result
+            color = "#10b981" if result.succeeded else "#ef4444"
+            verified_status = result.verified_status or "-"
+            executed_at = result.executed_at.strftime("%Y-%m-%d %H:%M:%S UTC")
+            st.markdown(
+                f"""
+                <div style="background:rgba(22,27,34,0.8); border-left:4px solid {color};
+                            border-radius:8px; padding:16px;">
+                    <div style="display:flex; justify-content:space-between;">
+                        <span style="font-weight:700; color:#f8fafc;">{ticket_key}</span>
+                        <span style="color:{color}; font-weight:700;">
+                            {result.outcome.value.upper()}
+                        </span>
+                    </div>
+                    <div style="margin-top:8px; color:#cbd5e1;">
+                        <strong>Verified status:</strong> <code>{verified_status}</code><br/>
+                        <strong>Message:</strong> {result.message}<br/>
+                        <strong>Executed at:</strong> {executed_at}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            if st.button("🔊 Speak result", key="speak_result"):
+                speak_text(format_result_announcement(ticket_key, result))
 
 
-if __name__ == "__main__":
-    main()
+live_regions()
+
+# -----------------------------------------------------------------------------
+# Demo simulator: injects a synthetic caption; the fragment above processes it on its
+# next tick (within UI_REFRESH_SECONDS), exactly like a real extension delivery would.
+# -----------------------------------------------------------------------------
+with tab_demo:
+    st.subheader("Simulate a spoken meeting update")
+    presets = [
+        "Alex Chen: PROJ-123 is complete and ready for Done.",
+        "Sarah Connor: STANDUP-42 code review is finished, ready for Done.",
+        "Dave Miller: JIRA-101 frontend refactoring is in progress.",
+        "Custom...",
+    ]
+    choice = st.selectbox("Preset", presets)
+    if choice == "Custom...":
+        speaker_in = st.text_input("Speaker label", value="Alex Chen")
+        text_in = st.text_input(
+            "Spoken statement", value="PROJ-123 is complete and ready for Done."
+        )
+    else:
+        speaker_in, text_in = (part.strip() for part in choice.split(":", 1))
+
+    if st.button("📡 Stream update", type="primary"):
+        st.session_state.caption_store.add_caption(
+            CaptionEvent.create(session_id, speaker_in, text_in)
+        )
+        st.rerun()
