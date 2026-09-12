@@ -74,7 +74,8 @@ class SafeActionService:
             return self._record(
                 proposal,
                 ActionOutcome.STALE,
-                f"{proposal.ticket_key} changed in Jira after the proposal was created.",
+                self._conflict_message(proposal, current),
+                verified_status=current.current_status,
             )
 
         transition = self._allowed_transition(proposal)
@@ -130,7 +131,9 @@ class SafeActionService:
         if proposal is None:
             raise KeyError(proposal_id)
         if proposal.state is not ProposalState.PENDING:
-            raise ValueError(f"{proposal_id} is {proposal.state.value}; only pending proposals can change")
+            raise ValueError(
+                f"{proposal_id} is {proposal.state.value}; only pending proposals can change"
+            )
         return proposal
 
     @staticmethod
@@ -138,6 +141,27 @@ class SafeActionService:
         if current.current_status != proposal.snapshot.current_status:
             return True
         return bool(proposal.snapshot.version and current.version != proposal.snapshot.version)
+
+    @staticmethod
+    def _conflict_message(proposal: Proposal, current: TicketSnapshot) -> str:
+        """Explain the live Jira conflict and ask a human to look, rather than guess.
+
+        Built from a fresh `read_ticket` taken immediately before this decision, so the
+        state named here is genuinely current, not the stale snapshot the proposal was
+        built from.
+        """
+        if current.current_status != proposal.snapshot.current_status:
+            change = (
+                f"was '{proposal.snapshot.current_status}' when proposed, "
+                f"is now '{current.current_status}'"
+            )
+        else:
+            change = "was updated in Jira after this proposal was created"
+        where = f" Check it here: {current.url}" if current.url else ""
+        return (
+            f"{proposal.ticket_key} {change}. Not moving it automatically - "
+            f"please check the ticket and confirm the right next step.{where}"
+        )
 
     def _allowed_transition(self, proposal: Proposal) -> Transition | None:
         for transition in self._jira.allowed_transitions(proposal.ticket_key):
@@ -157,7 +181,10 @@ class SafeActionService:
         except JiraAdapterError:
             verified = None
 
-        if verified and verified.current_status.casefold() == proposal.proposed_target_status.casefold():
+        if (
+            verified
+            and verified.current_status.casefold() == proposal.proposed_target_status.casefold()
+        ):
             self._store.set_state(proposal.proposal_id, ProposalState.EXECUTED, reviewer_identity)
             return self._record(
                 proposal,
@@ -193,4 +220,3 @@ class SafeActionService:
                 message=message,
             )
         )
-

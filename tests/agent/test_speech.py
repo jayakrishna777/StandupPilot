@@ -57,6 +57,20 @@ def test_failed_result_announcement_never_claims_success():
     assert "workflow forbids this transition" in text
 
 
+def test_stale_result_announcement_speaks_the_conflict_message_verbatim():
+    """SafeActionService builds a full "please check the ticket" message from a live
+    Jira read; the formatter must not wrap or duplicate it (see actions/service.py)."""
+    conflict_text = (
+        "SP-1 was 'In Progress' when proposed, is now 'In Review'. Not moving it "
+        "automatically - please check the ticket and confirm the right next step. "
+        "Check it here: https://example.atlassian.net/browse/SP-1"
+    )
+    result = ActionResult(proposal_id="p-1", outcome=ActionOutcome.STALE, message=conflict_text)
+    text = format_result_announcement("SP-1", result)
+    assert text == conflict_text
+    assert "was not updated" not in text
+
+
 def test_rejection_announcement_is_unambiguous():
     text = format_rejection_announcement("SP-1")
     assert text == "Proposal for ticket SP-1 was rejected. Jira was not changed."

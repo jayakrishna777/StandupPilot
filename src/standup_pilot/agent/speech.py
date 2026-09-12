@@ -6,7 +6,7 @@ Both the proposal/result announcement shown on screen and the text handed to
 
 from __future__ import annotations
 
-from standup_pilot.contracts import ActionResult, Proposal
+from standup_pilot.contracts import ActionOutcome, ActionResult, Proposal
 
 
 def format_proposal_announcement(proposal: Proposal) -> str:
@@ -22,6 +22,11 @@ def format_result_announcement(ticket_key: str, result: ActionResult) -> str:
     """Text spoken and displayed after an approval is executed and verified."""
     if result.succeeded:
         return f"Verified. Ticket {ticket_key} is now {result.verified_status}."
+    if result.outcome is ActionOutcome.STALE:
+        # SafeActionService builds this from a fresh Jira read taken at decision time,
+        # names the ticket, the before/after status, and asks a human to go look - no
+        # separate wrapper needed, and nothing here re-derives or repeats that.
+        return result.message
     return f"Ticket {ticket_key} was not updated: {result.outcome.value}. {result.message}".strip()
 
 

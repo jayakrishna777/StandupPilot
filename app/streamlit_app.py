@@ -37,7 +37,7 @@ from standup_pilot.agent.speech import (
     format_rejection_announcement,
     format_result_announcement,
 )
-from standup_pilot.contracts import UI_REFRESH_SECONDS, CaptionEvent
+from standup_pilot.contracts import UI_REFRESH_SECONDS, ActionOutcome, CaptionEvent
 from standup_pilot.jira import JiraClient, JiraConfigurationError
 from standup_pilot.settings import get_settings
 from standup_pilot.testing.fakes import (
@@ -447,7 +447,17 @@ def live_regions() -> None:
             st.info("No action taken yet.")
         else:
             ticket_key, result = last_result
-            color = "#10b981" if result.succeeded else "#ef4444"
+            is_conflict = result.outcome is ActionOutcome.STALE
+            if result.succeeded:
+                color = "#10b981"
+            elif is_conflict:
+                color = "#f59e0b"
+            else:
+                color = "#ef4444"
+            status_label = (
+                "🔀 CONFLICT - CHECK JIRA" if is_conflict else result.outcome.value.upper()
+            )
+            status_field_label = "Current Jira status" if is_conflict else "Verified status"
             verified_status = result.verified_status or "-"
             executed_at = result.executed_at.strftime("%Y-%m-%d %H:%M:%S UTC")
             st.markdown(
@@ -456,12 +466,10 @@ def live_regions() -> None:
                             border-radius:8px; padding:16px;">
                     <div style="display:flex; justify-content:space-between;">
                         <span style="font-weight:700; color:#f8fafc;">{ticket_key}</span>
-                        <span style="color:{color}; font-weight:700;">
-                            {result.outcome.value.upper()}
-                        </span>
+                        <span style="color:{color}; font-weight:700;">{status_label}</span>
                     </div>
                     <div style="margin-top:8px; color:#cbd5e1;">
-                        <strong>Verified status:</strong> <code>{verified_status}</code><br/>
+                        <strong>{status_field_label}:</strong> <code>{verified_status}</code><br/>
                         <strong>Message:</strong> {result.message}<br/>
                         <strong>Executed at:</strong> {executed_at}
                     </div>
@@ -469,6 +477,11 @@ def live_regions() -> None:
                 """,
                 unsafe_allow_html=True,
             )
+            if is_conflict and settings.jira_base_url:
+                st.link_button(
+                    "🔗 Open ticket in Jira",
+                    f"{settings.jira_base_url.rstrip('/')}/browse/{ticket_key}",
+                )
             if st.button("🔊 Speak result", key="speak_result"):
                 speak_text(format_result_announcement(ticket_key, result))
 
