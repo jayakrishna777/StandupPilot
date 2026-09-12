@@ -4,7 +4,7 @@
 
 **Suggested owner:** Developer B - submission owner, with qualification evidence from Developers A and C
 
-**Blocked by:** 05: Integrate the live meeting golden path
+**Blocked by:** 05: Integrate the live StandupPilot golden path
 
 **Status:** ready-for-agent
 

@@ -65,12 +65,12 @@ The golden-path demonstration is intentionally fixed: one Google Meet meeting, o
 
 - The product name used by the repository and implementation is **StandupPilot**.
 - The MVP is a local browser-assisted prototype. Google Meet and Streamlit run in Chrome on the organizer's computer; Jira and OpenRouter are external services.
-- Google Meet CC Capturer remains the caption-capture foundation. The team will modify and distribute a fork, preserve its license and copyright notices, state that the work is derived from Google Meet CC Capturer, and document modifications.
+- Google Meet CC Capturer from `https://github.com/yunho0130/google-meet-cc-to-srt` remains the caption-capture foundation. Implementation starts from upstream `main` revision `c7e649ceffde719fd66b319460b62a5ca56df890`; later upgrades require a deliberate compatibility check. The team will modify and distribute a fork, preserve its license and copyright notices, state that the work is derived from Google Meet CC Capturer, and document modifications.
 - Google Meet native captions provide speech-to-text. The MVP does not capture or transcribe raw meeting audio.
 - The captured speaker label is the displayed Google Meet name. It is contextual evidence, not verified identity and never grants approval authority.
 - The extension uses Chrome Manifest V3. Its content script observes finalized captions; a background worker sends validated events to the backend.
 - Caption stabilization and deduplication occur before network delivery. The backend additionally enforces uniqueness by event identifier.
-- Caption delivery uses an HTTP POST endpoint on the local FastAPI service. Each request carries a limited meeting-session token rather than an OpenRouter, Auth0, or Jira credential.
+- Caption delivery uses `POST http://localhost:8000/v1/captions` on the local FastAPI service. Each request carries a limited meeting-session token in `X-StandupPilot-Session` rather than an OpenRouter, Auth0, or Jira credential.
 - The caption endpoint returns HTTP 202 after validating and durably recording an event. Model inference is not performed inside the ingestion request.
 - Python 3.11 or newer is the application language. FastAPI and Uvicorn provide the caption ingress service.
 - Streamlit replaces CopilotKit. It provides the transcript, proposal, approval, result, connection status, and demonstration controls.
@@ -98,7 +98,8 @@ The golden-path demonstration is intentionally fixed: one Google Meet meeting, o
 - Browser speech synthesis is the initial text-to-speech mechanism. The spoken words exactly match visible proposal or result text.
 - The Streamlit tab must be shared into Google Meet with tab audio enabled for remote participants to hear the agent.
 - Caption processing is suppressible while StandupPilot speaks to avoid feedback from its own output.
-- Three developers work from one frozen baseline commit and own non-overlapping modules: meeting bridge, Streamlit/OpenRouter, and persistence/Jira/Auth0.
+- Three developers work from one frozen baseline commit and own non-overlapping modules: meeting bridge, Streamlit/OpenRouter, and PostgreSQL/FastAPI/Jira/Auth0.
+- The baseline supplies contracts and test doubles, not production implementations owned by the feature branches. Developer A proves the extension against a contract receiver, Developer B proves Streamlit and OpenRouter against fake storage and Jira reads, and Developer C proves PostgreSQL, FastAPI, authorization, and Jira actions using synthetic captions and seeded proposals. Integration replaces the doubles and qualifies the real cross-branch workflow.
 - Shared contracts define the caption event, proposal, action result, endpoint, session-token header, local ports, and proposal-state vocabulary before feature branches begin.
 - The integration lead owns repository-wide configuration and final merges. Shared contracts change only through an explicit three-person decision.
 - Feature branches are merged into a temporary integration branch. Persistence and action services merge first, Streamlit and the agent second, and the extension third.
