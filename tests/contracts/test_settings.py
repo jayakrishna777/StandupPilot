@@ -33,6 +33,21 @@ def test_empty_allowlist_authorizes_nobody():
     assert not _settings(reviewer_allowlist="").is_reviewer("anyone@example.com")
 
 
+def test_wildcard_allowlist_authorizes_any_non_empty_identity():
+    """REVIEWER_ALLOWLIST=* (explicit, temporary, reversible) opens approval to anyone."""
+    settings = _settings(reviewer_allowlist="*")
+    assert settings.reviewer_allowlist_is_public
+    assert settings.is_reviewer("anyone@example.com")
+    assert settings.is_reviewer("literally anything")
+    assert not settings.is_reviewer(None)
+    assert not settings.is_reviewer("")
+
+
+def test_non_wildcard_allowlist_is_not_public():
+    assert not _settings(reviewer_allowlist="a@example.com").reviewer_allowlist_is_public
+    assert not _settings(reviewer_allowlist="").reviewer_allowlist_is_public
+
+
 def test_secrets_are_not_exposed_by_repr():
     settings = _settings(openrouter_api_key="sk-or-secret", jira_api_token="jira-secret")
     dumped = repr(settings) + str(settings.model_dump())

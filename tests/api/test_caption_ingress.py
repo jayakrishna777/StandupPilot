@@ -1,4 +1,10 @@
-"""Ticket 04: authenticated FastAPI caption ingress."""
+"""Ticket 04 caption ingress.
+
+TEMPORARY (explicit request): the session-token check is disabled - see
+api/main.py's module docstring. The tests below reflect that: a missing, wrong, or
+unconfigured token is no longer rejected. Everything else (validation, duplicates,
+size limits) is unchanged from Ticket 04.
+"""
 
 from __future__ import annotations
 
@@ -35,7 +41,9 @@ def _event(text: str = "KAN-10 backend work is completed") -> CaptionEvent:
 
 
 def _client(store: InMemoryCaptionStore | None = None, token: str = TOKEN) -> TestClient:
-    return TestClient(create_app(caption_store=store or InMemoryCaptionStore(), settings=_settings(token)))
+    return TestClient(
+        create_app(caption_store=store or InMemoryCaptionStore(), settings=_settings(token))
+    )
 
 
 def test_caption_ingress_accepts_and_stores_a_valid_event():
@@ -69,30 +77,30 @@ def test_duplicate_caption_returns_the_existing_record_once():
     assert len(store.recent_captions(SESSION)) == 1
 
 
-def test_caption_ingress_rejects_missing_session_token():
+def test_caption_ingress_accepts_a_missing_session_token():
     response = _client().post("/v1/captions", json=_event().model_dump(mode="json"))
 
-    assert response.status_code == 401
+    assert response.status_code == CAPTION_ACCEPTED_STATUS
 
 
-def test_caption_ingress_rejects_invalid_session_token():
+def test_caption_ingress_accepts_any_session_token():
     response = _client().post(
         "/v1/captions",
         json=_event().model_dump(mode="json"),
         headers={SESSION_TOKEN_HEADER: "wrong-token"},
     )
 
-    assert response.status_code == 403
+    assert response.status_code == CAPTION_ACCEPTED_STATUS
 
 
-def test_caption_ingress_fails_closed_when_no_token_is_configured():
+def test_caption_ingress_accepts_captions_with_no_token_configured():
     response = _client(token="").post(
         "/v1/captions",
         json=_event().model_dump(mode="json"),
         headers={SESSION_TOKEN_HEADER: TOKEN},
     )
 
-    assert response.status_code == 503
+    assert response.status_code == CAPTION_ACCEPTED_STATUS
 
 
 def test_caption_ingress_rejects_invalid_bodies():

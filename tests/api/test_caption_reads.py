@@ -2,6 +2,9 @@
 
 Read-only companion to Ticket 04's POST endpoint, added because Streamlit has no other
 way to see a caption the extension posted before a shared PostgreSQL store exists.
+
+TEMPORARY (explicit request): the session-token check is disabled on both endpoints -
+see api/main.py's module docstring.
 """
 
 from __future__ import annotations
@@ -67,16 +70,16 @@ def test_get_captions_is_scoped_to_the_requested_session():
     assert [c["meeting_session_id"] for c in response.json()] == [SESSION]
 
 
-def test_get_captions_requires_a_valid_session_token():
+def test_get_captions_does_not_require_a_session_token():
     response = _client().get("/v1/captions", params={"meeting_session_id": SESSION})
-    assert response.status_code == 401
+    assert response.status_code == 200
 
     response = _client().get(
         "/v1/captions",
         params={"meeting_session_id": SESSION},
         headers={SESSION_TOKEN_HEADER: "wrong"},
     )
-    assert response.status_code == 403
+    assert response.status_code == 200
 
 
 def test_get_captions_never_calls_openrouter_or_jira():

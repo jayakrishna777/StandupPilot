@@ -130,6 +130,17 @@ def test_unauthorized_identity_cannot_approve():
     assert store.get_proposal("p-1").state is ProposalState.PENDING
 
 
+def test_wildcard_reviewer_set_authorizes_any_non_empty_identity():
+    """Mirrors Settings.reviewer_allowlist_is_public: "*" opens approval to anyone."""
+    store = InMemoryProposalStore()
+    store.add_proposal(_proposal())
+    service = StubActionService(frozenset({"*"}), store)
+    assert service.is_authorized("anyone@example.com")
+    assert not service.is_authorized(None)
+    result = service.approve("p-1", "anyone@example.com")
+    assert result.succeeded
+
+
 def test_repeated_approval_executes_once_and_returns_the_recorded_result():
     store = InMemoryProposalStore()
     store.add_proposal(_proposal())

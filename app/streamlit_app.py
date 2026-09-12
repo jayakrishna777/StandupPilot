@@ -10,12 +10,19 @@ hasn't filled in every secret yet:
 - Jira reads/writes: `JiraClient` + `SafeActionService` when `settings.jira_configured`,
   else `FakeJiraReader` + `StubActionService`.
 - Live captions: polls the real `GET/POST /v1/captions` via `agent.live_client` when
-  `settings.caption_ingress_configured`, else a session-local in-memory store.
-- Reviewer identity: Auth0 `st.user` when `settings.auth0_configured`, else a manual
-  text field.
+  `settings.caption_ingress_configured`, else a session-local in-memory store. The API
+  itself no longer checks the session token - see `api/main.py`'s module docstring.
 
-The model never gets a mutation path in any mode - `st.session_state.action_service`
-is the only thing `Approve` can call.
+TEMPORARY (explicit request, all reversible): access control is disabled for now.
+- Auth0 login is not wired up; reviewer identity is a free-text field.
+- `REVIEWER_ALLOWLIST` in `.env` is set to `*`, which `Settings.is_reviewer` treats as
+  "any non-empty identity is authorized" - anyone who can reach this page can approve
+  or reject, and a real Jira transition still executes for real. Restore a real
+  comma-separated allow-list in `.env` to re-enable the check; no code change needed.
+
+The model still never gets a mutation path - `st.session_state.action_service` is the
+only thing `Approve` can call, and it always re-reads Jira and checks the allowed
+transition before writing.
 """
 
 from __future__ import annotations
@@ -243,18 +250,9 @@ with st.sidebar:
     st.title("Meeting Controls")
     session_id = st.text_input("Active meeting session ID", value=DEMO_MEETING_SESSION_ID)
 
-    if settings.auth0_configured:
-        if not st.user.is_logged_in:
-            st.button("🔐 Log in with Auth0", on_click=st.login, args=("auth0",))
-            reviewer_identity = None
-        else:
-            st.write(f"Signed in as **{st.user.email}**")
-            st.button("Log out", on_click=st.logout)
-            reviewer_identity = st.user.email
-    else:
-        reviewer_identity = st.text_input(
-            "Reviewer identity (set AUTH0_* in .env for real login)", value="demo@example.com"
-        )
+    # TEMPORARY (explicit request): Auth0 login is disabled. Reviewer identity is a
+    # free-text field and approval is open to anyone - see the module docstring.
+    reviewer_identity = st.text_input("Reviewer identity", value="demo@example.com")
 
     st.divider()
     st.subheader("Status")

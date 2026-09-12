@@ -6,6 +6,12 @@ by the extension unless it can read it back from this same process, so this file
 one read-only `GET /v1/captions` endpoint alongside the frozen `POST`. It changes
 nothing about the frozen contract (path, header, or write behavior) and only exposes
 data the extension itself already sent.
+
+TEMPORARY (explicit request): the `X-StandupPilot-Session` check is disabled below -
+both endpoints accept any request, with or without a token, for any `meeting_session_id`.
+The header is still accepted (and the extension can still send it) but is no longer
+validated. To restore it, reinstate a call to `_require_session_token` in each endpoint;
+the function is left in place, unused, for exactly that reason.
 """
 
 from __future__ import annotations
@@ -47,6 +53,7 @@ def create_app(
         return request.app.state.caption_store
 
     def _require_session_token(configured: Settings, session_token: str | None) -> None:
+        """Unused while the caption API is public - see the module docstring."""
         expected_token = configured.meeting_session_token.get_secret_value()
         if not expected_token:
             raise HTTPException(
@@ -68,12 +75,11 @@ def create_app(
     def accept_caption(
         event: CaptionEvent,
         caption_store: CaptionStore = Depends(store),
-        configured: Settings = Depends(current_settings),
         session_token: str | None = Header(default=None, alias=SESSION_TOKEN_HEADER),
     ) -> dict[str, str]:
-        """Validate, authenticate, and persist one finalized caption event."""
-        _require_session_token(configured, session_token)
-
+        """Validate and persist one finalized caption event. Public for now - no
+        session-token check; see the module docstring."""
+        del session_token
         accepted = caption_store.add_caption(event)
         return {"event_id": accepted.event_id, "meeting_session_id": accepted.meeting_session_id}
 
@@ -82,16 +88,14 @@ def create_app(
         meeting_session_id: str,
         limit: int = 100,
         caption_store: CaptionStore = Depends(store),
-        configured: Settings = Depends(current_settings),
         session_token: str | None = Header(default=None, alias=SESSION_TOKEN_HEADER),
     ) -> list[dict]:
         """Read back recent captions for one session so the UI can display them live.
 
-        Read-only; never invokes OpenRouter or Jira. Added in Ticket 05 alongside the
-        frozen POST - see the module docstring.
+        Read-only; never invokes OpenRouter or Jira. Public for now - no session-token
+        check; see the module docstring.
         """
-        _require_session_token(configured, session_token)
-
+        del session_token
         return [
             event.model_dump(mode="json")
             for event in caption_store.recent_captions(meeting_session_id, limit=limit)

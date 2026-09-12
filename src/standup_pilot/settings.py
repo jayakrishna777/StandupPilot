@@ -81,6 +81,12 @@ class Settings(BaseSettings):
         return value
 
     @property
+    def reviewer_allowlist_is_public(self) -> bool:
+        """`REVIEWER_ALLOWLIST=*` (explicit, temporary, reversible) opens approval to
+        anyone. Restore a real comma-separated allow-list to re-enable the check."""
+        return self.reviewer_allowlist.strip() == "*"
+
+    @property
     def reviewers(self) -> frozenset[str]:
         """Configured reviewer identities, lowercased. Authentication alone is not enough."""
         return frozenset(
@@ -88,6 +94,8 @@ class Settings(BaseSettings):
         )
 
     def is_reviewer(self, identity: str | None) -> bool:
+        if self.reviewer_allowlist_is_public:
+            return bool(identity)
         return bool(identity) and identity.strip().lower() in self.reviewers
 
     @property

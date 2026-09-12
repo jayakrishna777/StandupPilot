@@ -172,6 +172,11 @@ class StubActionService:
         self.approve_calls = 0
 
     def is_authorized(self, identity: str | None) -> bool:
+        if "*" in self._reviewers:
+            # Mirrors Settings.reviewer_allowlist_is_public: an explicit "*" opens
+            # approval to any non-empty identity. No test passes "*" today, so this is
+            # backward-compatible with every existing exact-match assertion.
+            return bool(identity)
         return bool(identity) and identity.strip().lower() in self._reviewers
 
     def approve(self, proposal_id: str, reviewer_identity: str) -> ActionResult:
