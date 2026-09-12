@@ -62,6 +62,7 @@ class Settings(BaseSettings):
     reviewer_allowlist: str = ""
 
     # --- caption ingress ---
+    meeting_session_token: SecretStr = SecretStr("")
     meeting_session_token_bytes: int = 32
     max_caption_chars: int = 1000
 
@@ -106,6 +107,10 @@ class Settings(BaseSettings):
             and self.auth0_client_id
             and self.auth0_client_secret.get_secret_value()
         )
+
+    @property
+    def caption_ingress_configured(self) -> bool:
+        return bool(self.meeting_session_token.get_secret_value())
 
 
 @lru_cache(maxsize=1)
