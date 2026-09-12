@@ -16,11 +16,32 @@ from typing import Protocol, runtime_checkable
 
 from standup_pilot.contracts.models import (
     ActionResult,
+    AuthenticatedReviewer,
     CaptionEvent,
     Proposal,
     TicketSnapshot,
     Transition,
 )
+
+
+@runtime_checkable
+class CaptionReceiver(Protocol):
+    """Contract receiver used by the extension before the production API exists."""
+
+    def receive_caption(
+        self, event: CaptionEvent, session_token: str | None = None
+    ) -> CaptionEvent:
+        """Accept a contract-valid event and return its idempotent accepted record."""
+        ...
+
+
+@runtime_checkable
+class ReviewerAuthorizer(Protocol):
+    """Authorization seam consuming a verified reviewer claim, never Meet metadata."""
+
+    def is_authorized(self, reviewer: AuthenticatedReviewer | None) -> bool:
+        """Return true only when the authenticated reviewer is allow-listed."""
+        ...
 
 
 @runtime_checkable

@@ -15,12 +15,14 @@ from standup_pilot.contracts import (
     ActionResult,
     ActionService,
     CaptionEvent,
+    CaptionReceiver,
     CaptionStore,
     InferenceSource,
     JiraReader,
     Proposal,
     ProposalState,
     ProposalStore,
+    ReviewerAuthorizer,
     TicketSnapshot,
     Transition,
 )
@@ -29,6 +31,8 @@ from standup_pilot.testing.fakes import (
     InMemoryCaptionStore,
     InMemoryProposalStore,
     StubActionService,
+    StubCaptionReceiver,
+    StubReviewerAuthorizer,
 )
 
 SESSION = "demo-session"
@@ -41,6 +45,8 @@ def test_fakes_satisfy_the_frozen_protocols():
     assert isinstance(store, ProposalStore)
     assert isinstance(FakeJiraReader({}), JiraReader)
     assert isinstance(StubActionService(frozenset({"r@example.com"}), store), ActionService)
+    assert isinstance(StubCaptionReceiver(), CaptionReceiver)
+    assert isinstance(StubReviewerAuthorizer(frozenset({"r@example.com"})), ReviewerAuthorizer)
 
 
 def test_duplicate_caption_returns_the_existing_record():

@@ -11,40 +11,38 @@ git clone <repo> && cd StandupPilot
 
 1. Creates `.env` from `.env.example` if absent, and `.streamlit/secrets.toml` from its
    example. Both are git-ignored; the script refuses to continue if `.env` is not ignored.
-2. Creates `.venv` and installs the project with its dev dependencies.
-3. Creates the PostgreSQL role and the `standup_pilot` and `standup_pilot_test`
-   databases as the postgres superuser (needs `sudo`).
-4. Runs `scripts/check_setup.py` and the Phase 0 contract tests.
+2. Creates `.venv` and installs everything (app, agent, Streamlit UI, dev/test tooling)
+   from `requirements.txt` with `pip`.
+3. Runs `scripts/check_setup.py` and the Phase 0 contract tests.
 
-Variants:
-
-```bash
-./scripts/setup.sh --no-db     # skip the database bootstrap (no sudo)
-./scripts/setup.sh --db-only   # only create the role and databases
-```
+It does not touch PostgreSQL. Point `DATABASE_URL` in `.env` at whatever local database
+you already have; each developer manages their own server and database.
 
 ## Prerequisites
 
 - Python 3.11 or newer, with `python3-venv`.
-- A running local PostgreSQL server. Check and start it with:
+- Node.js 20 or newer and npm, for the vanilla Chrome Manifest V3 toolchain in
+  `extension/package.json`.
+- A running local PostgreSQL server, with a database already created, and
+  `DATABASE_URL` in `.env` pointing at it, e.g.:
 
-  ```bash
-  sudo systemctl status postgresql
-  sudo systemctl start postgresql
+  ```
+  DATABASE_URL=postgresql://postgres:your-password@localhost:5432/your_database
   ```
 
-  An installed-but-stopped server is not a working dependency. `setup.sh` fails loudly
-  if it cannot reach one.
+  An installed-but-stopped server is not a working dependency; `check_setup.py` fails
+  loudly if it cannot connect.
 
 - Google Chrome, for the extension and for sharing the Streamlit tab with tab audio.
 
 ## Secrets you must add to `.env`
 
-`setup.sh` fills in everything local. These four groups need real values, and the
-readiness check warns until they are present:
+These four groups need real values, and the readiness check warns until they are
+present:
 
 | Key | Where it comes from |
 | --- | --- |
+| `DATABASE_URL` | Your local PostgreSQL connection string. No SQLite fallback. |
 | `OPENROUTER_API_KEY` | openrouter.ai -> Keys. `OPENROUTER_MODEL` defaults to the zero-cost `openrouter/free`. |
 | `JIRA_BASE_URL`, `JIRA_USER_EMAIL`, `JIRA_API_TOKEN` | Your Jira Cloud site and an API token from id.atlassian.com. Use an account with permissions only on the demo project. |
 | `JIRA_PROJECT_KEY`, `JIRA_DEMO_ISSUE_KEY` | The one demo project and the one ticket used by the golden path. |
@@ -64,6 +62,17 @@ source .venv/bin/activate
 
 Both addresses are frozen contracts; the extension and the tests depend on them.
 
+The Ticket 01 foundation API intentionally exposes only `GET /healthz`, and the
+Streamlit process renders placeholders. Caption forwarding, persistence, Jira, and
+Auth0 behavior are added by later tickets.
+
+To run the extension toolchain smoke command before the bridge exists:
+
+```bash
+cd extension
+npm test
+```
+
 ## Tests
 
 ```bash
@@ -73,18 +82,19 @@ pytest                          # full suite, including PostgreSQL storage tests
 ruff check . && ruff format --check .
 ```
 
+Storage tests use `TEST_DATABASE_URL` if set in `.env`, otherwise `DATABASE_URL`.
+
 ## Verifying a workstation
 
 ```bash
 python scripts/check_setup.py
 ```
 
-Exits non-zero only if Python is too old, the package is not installed, or either
-database is unreachable. Missing external credentials are reported as warnings.
+Exits non-zero only if Python is too old, the package is not installed, or
+`DATABASE_URL` is unreachable. Missing external credentials are reported as warnings.
 
 ## Notes
 
-- The host has PostgreSQL 18 running on port 5432. The specification names 16.15; nothing
-  in the baseline depends on the difference, and the readiness check prints the version it
-  actually found.
 - There is no SQLite fallback. `Settings` rejects any non-PostgreSQL `DATABASE_URL`.
+- `requirements.txt` installs the project in editable mode (`-e .[dev]`); versions are
+  pinned once, in `pyproject.toml`.

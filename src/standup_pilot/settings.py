@@ -30,7 +30,8 @@ class Settings(BaseSettings):
 
     # --- database ---
     database_url: str = "postgresql://standup_pilot@localhost:5432/standup_pilot"
-    test_database_url: str = "postgresql://standup_pilot@localhost:5432/standup_pilot_test"
+    # Optional: only needed if a developer runs storage tests against a separate database.
+    test_database_url: str = ""
     db_pool_min_size: int = 1
     db_pool_max_size: int = 8
 
@@ -64,10 +65,17 @@ class Settings(BaseSettings):
     meeting_session_token_bytes: int = 32
     max_caption_chars: int = 1000
 
-    @field_validator("database_url", "test_database_url")
+    @field_validator("database_url")
     @classmethod
     def _require_postgres(cls, value: str) -> str:
         if not value.startswith(("postgresql://", "postgres://")):
+            raise ValueError("StandupPilot requires PostgreSQL; there is no SQLite fallback")
+        return value
+
+    @field_validator("test_database_url")
+    @classmethod
+    def _require_postgres_if_set(cls, value: str) -> str:
+        if value and not value.startswith(("postgresql://", "postgres://")):
             raise ValueError("StandupPilot requires PostgreSQL; there is no SQLite fallback")
         return value
 

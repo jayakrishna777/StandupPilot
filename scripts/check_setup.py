@@ -2,9 +2,9 @@
 """Readiness check for a StandupPilot workstation.
 
 Reports what is ready and what is still missing. Exits non-zero only when something
-required for the shared baseline is broken: the database must be reachable and both
-databases must exist. Missing OpenRouter, Jira, and Auth0 credentials are warnings,
-because each developer fills those in at a different point.
+required for the shared baseline is broken: DATABASE_URL must be reachable. Missing
+OpenRouter, Jira, and Auth0 credentials are warnings, because each developer fills
+those in at a different point.
 
     python scripts/check_setup.py
 """
@@ -62,16 +62,20 @@ def main() -> int:
         check_required(False, "psycopg installed", str(exc))
         return 1
 
-    for label, url in (
-        ("development database", settings.database_url),
-        ("test database", settings.test_database_url),
-    ):
+    try:
+        with psycopg.connect(settings.database_url, connect_timeout=5) as conn:
+            version = conn.execute("show server_version").fetchone()[0]
+        check_required(True, "database", f"connected, PostgreSQL {version}")
+    except Exception as exc:
+        check_required(False, "database", str(exc).strip().splitlines()[0])
+
+    if settings.test_database_url:
         try:
-            with psycopg.connect(url, connect_timeout=5) as conn:
+            with psycopg.connect(settings.test_database_url, connect_timeout=5) as conn:
                 version = conn.execute("show server_version").fetchone()[0]
-            check_required(True, label, f"connected, PostgreSQL {version}")
+            check_optional(True, "test database", f"connected, PostgreSQL {version}")
         except Exception as exc:
-            check_required(False, label, str(exc).strip().splitlines()[0])
+            check_optional(False, "test database", str(exc).strip().splitlines()[0])
 
     # --- external services: warn only --------------------------------------
     check_optional(
@@ -86,7 +90,7 @@ def main() -> int:
     print()
     if failures:
         print(f"{len(failures)} required check(s) failed: {', '.join(failures)}")
-        print("Run ./scripts/setup.sh --db-only if the databases are missing.")
+        print("Check DATABASE_URL in .env and that PostgreSQL is running.")
         return 1
     if warnings:
         print(f"Baseline ready. Still to configure in .env: {', '.join(warnings)}.")

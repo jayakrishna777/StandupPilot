@@ -1,14 +1,14 @@
 {
-  "name": "standup-pilot-meeting-bridge",
+  "name": "standup-pilot-extension",
   "version": "0.1.0",
   "private": true,
-  "description": "MV3 Google Meet caption bridge for StandupPilot",
+  "description": "Toolchain manifest for the StandupPilot Chrome Manifest V3 bridge.",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "test": "node --test ../tests/extension/*.test.js",
     "lint": "node --check lib/contracts.js && node --check lib/caption-stabilizer.js && node --check lib/delivery-queue.js && node --check content/caption-bridge.js && node --check background/service-worker.js && node --check popup/popup.js",
     "build": "node --check background/service-worker.js"
-  },
-  "engines": {
-    "node": ">=18"
   }
 }
