@@ -1,0 +1,59 @@
+# --- Secrets: never commit real configuration ---
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+*.pem
+*.key
+secrets/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.python-version
+
+# --- Test and tooling caches ---
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# --- PostgreSQL dumps and exported demo data ---
+*.sql.gz
+*.dump
+dumps/
+data/exports/
+
+# --- Meeting artifacts: captions and recordings must never be pushed ---
+captures/
+recordings/
+transcripts/
+*.vtt
+*.srt
+*.webm
+*.mp4
+
+# --- Node / extension build output ---
+node_modules/
+extension/dist/
+extension/*.zip
+
+# --- Editor and OS ---
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# --- Local scratch ---
+.scratch/
+graphify-out/
+logs/
+*.log
