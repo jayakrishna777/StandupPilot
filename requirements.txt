@@ -1,0 +1,6 @@
+# Install everything (app, agent, Streamlit UI, and dev/test tooling) with:
+#   pip install -r requirements.txt
+#
+# Versions are pinned once, in pyproject.toml, so they don't drift between the two
+# files. This just installs the project in editable mode with its dev extra.
+-e .[dev]
