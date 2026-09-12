@@ -11,7 +11,7 @@ This plan implements the decisions in `standup-pilot-mvp-spec.md`. The implement
 - Preserve the fixed scope: one Google Meet meeting, one Jira project, one explicit ticket key, and one approved status transition.
 - Use the modified Google Meet CC Capturer fork for caption input.
 - Use Streamlit for the interface and Auth0 OIDC login.
-- Use FastAPI for caption ingestion and SQLite for shared local persistence.
+- Use FastAPI for caption ingestion and the installed local PostgreSQL 16 server for shared persistence. Do not add a SQLite fallback.
 - Use OpenRouter for model inference with a configurable model and `openrouter/free` as the zero-cost default.
 - Do not expose Jira, OpenRouter, Auth0, or database credentials to the Chrome extension or repository.
 - The model proposes actions but never performs Jira mutations.
@@ -35,7 +35,7 @@ flowchart TD
     B3["B3 - Integrate OpenRouter structured output"]
     B4["B4 - Add rule-based fallback and speech"]
 
-    C1["C1 - Build SQLite repositories"]
+    C1["C1 - Build PostgreSQL repositories"]
     C2["C2 - Add FastAPI caption ingress"]
     C3["C3 - Implement Jira adapter"]
     C4["C4 - Add Auth0 authorization and safe approval"]
@@ -72,7 +72,7 @@ flowchart TD
 ### Required outcomes
 
 1. Create the Python project scaffold and dependency manifest.
-2. Create the extension, application, package, test, script, and data directories.
+2. Create the extension, application, package, migration, test, and script directories.
 3. Create example configuration files with placeholder values and ignore all real secret files.
 4. Define and test the shared caption-event, proposal, and action-result contracts.
 5. Freeze the caption endpoint as `POST http://localhost:8000/v1/captions`.
@@ -147,7 +147,7 @@ flowchart TD
 
 **Owned modules:** Streamlit application, agent interpretation, rule-based fallback, and speech helper.
 
-**Must not modify:** Extension, SQLite implementation, FastAPI caption route, Jira transport, or approval execution.
+**Must not modify:** Extension, PostgreSQL implementation and migrations, FastAPI caption route, Jira transport, or approval execution.
 
 ### B1: Build the Streamlit shell
 
@@ -201,21 +201,24 @@ flowchart TD
 
 ## Developer C: Persistence, Jira, Auth0, and Safe Actions
 
-**Owned modules:** SQLite, FastAPI caption ingress, Jira adapter, Auth0 configuration, authorization, and action execution.
+**Owned modules:** PostgreSQL persistence and migrations, FastAPI caption ingress, Jira adapter, Auth0 configuration, authorization, and action execution.
 
 **Must not modify:** Extension DOM logic, Streamlit layout, or OpenRouter prompt and parser.
 
-### C1: Implement SQLite persistence
+### C1: Implement PostgreSQL persistence
 
-1. Write repository tests for meeting sessions, caption events, proposals, and action results.
-2. Verify event identifiers and proposal execution identifiers are unique.
-3. Verify duplicate insertion returns the existing record rather than raising an unhandled error.
-4. Create the schema and enable write-ahead logging.
-5. Store timestamps in UTC.
-6. Enforce legal proposal-state transitions.
-7. Use parameterized SQL for every value.
-8. Run storage tests.
-9. Commit with `feat(storage): persist StandupPilot workflow state`.
+1. Confirm the installed PostgreSQL 16 server is accepting connections before creating application objects.
+2. Define a server-side `DATABASE_URL` for development and a separate isolated test database or schema.
+3. Write repository tests for meeting sessions, caption events, proposals, and action results against PostgreSQL.
+4. Verify event identifiers and proposal execution identifiers are unique.
+5. Verify duplicate insertion returns the existing record rather than raising an unhandled error.
+6. Create versioned migrations for all required tables, constraints, indexes, and proposal-state rules.
+7. Use PostgreSQL transactions and row-level concurrency controls where approval or idempotent execution can race.
+8. Store application times as UTC `TIMESTAMPTZ` values.
+9. Use Psycopg 3, bounded connection pooling, and parameterized SQL for every value.
+10. Prove migrations apply cleanly to an empty database and can be checked from a clean checkout.
+11. Run storage tests and remove test data afterward.
+12. Commit with `feat(storage): persist StandupPilot workflow state in PostgreSQL`.
 
 ### C2: Implement FastAPI caption ingress
 
@@ -390,4 +393,4 @@ If a branch misses minute 140, integrate its smallest contract-compliant golden-
 - Merge commits use `--no-ff` so the three parallel work streams remain visible.
 - Integration fixes are separate commits and name the boundary being repaired.
 - No developer rewrites another developer's branch during the parallel phase.
-- Do not push real secret files, SQLite demo data, downloaded captions, or recorded meeting artifacts.
+- Do not push real secret files, PostgreSQL dumps or exported demo data, downloaded captions, or recorded meeting artifacts.

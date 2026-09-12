@@ -10,7 +10,7 @@ The team has no access to the CopilotKit starter kit. The implementation must us
 
 ## Solution
 
-StandupPilot is a browser-assisted, voice-enabled Google Meet agent. A modified fork of Google Meet CC Capturer observes Google Meet's native captions and forwards finalized caption events, including the displayed speaker label, to a local FastAPI service. The service validates and stores the events in SQLite.
+StandupPilot is a browser-assisted, voice-enabled Google Meet agent. A modified fork of Google Meet CC Capturer observes Google Meet's native captions and forwards finalized caption events, including the displayed speaker label, to a local FastAPI service. The service validates and stores the events in PostgreSQL.
 
 A Streamlit application displays the live transcript and periodically processes relevant statements. A deterministic prefilter selects captions containing an explicit Jira ticket key and recognizable delivery language. The agent then calls OpenRouter for a structured interpretation of the statement. StandupPilot reads the referenced Jira issue and its currently allowed transitions and presents a proposal containing the original meeting evidence, current Jira state, and proposed change.
 
@@ -75,7 +75,8 @@ The golden-path demonstration is intentionally fixed: one Google Meet meeting, o
 - Python 3.11 or newer is the application language. FastAPI and Uvicorn provide the caption ingress service.
 - Streamlit replaces CopilotKit. It provides the transcript, proposal, approval, result, connection status, and demonstration controls.
 - Streamlit periodically refreshes only the live portions of the page. A one-second refresh interval is sufficient for the prototype and avoids a WebSocket dependency.
-- SQLite is the shared local store between FastAPI and Streamlit. Write-ahead logging is enabled, identifiers are unique, SQL is parameterized, and timestamps are stored in UTC.
+- PostgreSQL 16 is the required shared store between FastAPI and Streamlit. Both processes connect through the same server-side `DATABASE_URL`; there is no SQLite fallback.
+- Database schema changes are applied through versioned migrations. Transactions, unique constraints, parameterized SQL, connection pooling, and UTC `TIMESTAMPTZ` values protect concurrent API writes and UI reads.
 - The persisted records are meeting sessions, caption events, proposals, and action results.
 - The primary agent is a narrow statement interpreter, not an open-ended autonomous loop. It converts one caption into a structured proposed Jira action.
 - A deterministic prefilter requires an explicit Jira-key pattern and delivery-related language before invoking OpenRouter.
@@ -109,7 +110,7 @@ The golden-path demonstration is intentionally fixed: one Google Meet meeting, o
 - The primary and highest-value test seam is the complete application workflow: accept a caption event, create an evidence-backed proposal, authorize an approval, execute an allowed Jira transition, and return a verified result. OpenRouter, Auth0 identity claims, and Jira are controlled fakes at this seam so the test is deterministic.
 - The extension boundary has a focused browser-fixture test because Google Meet DOM observation is outside the Python application seam. It verifies speaker extraction, stabilization, deduplication, event construction, and delivery to a mocked endpoint.
 - The caption API has contract tests for valid acceptance, invalid schemas, missing or invalid session tokens, inactive sessions, oversized text, and idempotent duplicates.
-- Storage tests verify uniqueness, state transitions, UTC timestamps, idempotent results, and safe concurrent reads and writes under SQLite write-ahead logging.
+- Storage tests run against PostgreSQL and verify migrations, uniqueness, state transitions, UTC timestamps, idempotent results, transaction rollback, and safe concurrent API writes and UI reads. Tests use an isolated test database or schema and remove their data afterward.
 - Agent tests verify Jira-key prefiltering, suppression of irrelevant conversation, valid OpenRouter structured output, invalid output rejection, timeouts, rate limits, ticket-key mismatch rejection, and visible rule-based fallback behavior.
 - Jira adapter tests use a fake HTTP transport to verify issue reads, transition discovery, exact transition identifiers, permission failures, missing issues, timeouts, and uncertain post-write outcomes.
 - Approval tests verify Auth0 login requirements, reviewer allow-list enforcement, rejection without mutation, stale-snapshot detection, allowed-transition revalidation, idempotent repeated clicks, and verified success reporting.
@@ -140,5 +141,6 @@ The golden-path demonstration is intentionally fixed: one Google Meet meeting, o
 - The golden path is: a participant says that an explicit Jira ticket is fixed; the caption bridge forwards the completed statement; StandupPilot reads Jira; the agent proposes an allowed target state with evidence; an Auth0-authorized reviewer approves; the backend revalidates and executes the transition; StandupPilot verifies and announces the result.
 - The extension license includes Commons Clause and additional terms. The hackathon fork must retain notices, publish modifications under the required terms, disclose changes, and obtain participant consent for caption capture. A future commercial product should replace this dependency or obtain explicit permission.
 - The free OpenRouter router is appropriate for low-volume prototyping but may vary in provider, latency, and availability. The model slug remains configurable and the deterministic fallback is part of the acceptance criteria.
+- PostgreSQL 16.15 is installed on the development host. The server must be started and pass a readiness check before implementation or tests begin; installation alone is not treated as a working database dependency.
 - The repository had no issue-tracker configuration or triage-label vocabulary when this specification was created. This specification is stored in the repository but is not published as an issue or labelled `ready-for-agent`.
 - The scope should not expand until the complete golden path passes twice from separate meeting devices.
