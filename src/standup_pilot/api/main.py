@@ -1,4 +1,12 @@
-"""FastAPI application for health checks and caption ingress."""
+"""FastAPI application for health checks and caption ingress.
+
+Integration fix (Ticket 05, boundary: api-read-seam): Ticket 04 shipped write-only
+ingress. Without a shared PostgreSQL yet, Streamlit has no way to see a caption posted
+by the extension unless it can read it back from this same process, so this file adds
+one read-only `GET /v1/captions` endpoint alongside the frozen `POST`. It changes
+nothing about the frozen contract (path, header, or write behavior) and only exposes
+data the extension itself already sent.
+"""
 
 from __future__ import annotations
 
@@ -38,14 +46,7 @@ def create_app(
     def store(request: Request) -> CaptionStore:
         return request.app.state.caption_store
 
-    @api.post(CAPTION_ENDPOINT_PATH, status_code=CAPTION_ACCEPTED_STATUS, tags=["captions"])
-    def accept_caption(
-        event: CaptionEvent,
-        caption_store: CaptionStore = Depends(store),
-        configured: Settings = Depends(current_settings),
-        session_token: str | None = Header(default=None, alias=SESSION_TOKEN_HEADER),
-    ) -> dict[str, str]:
-        """Validate, authenticate, and persist one finalized caption event."""
+    def _require_session_token(configured: Settings, session_token: str | None) -> None:
         expected_token = configured.meeting_session_token.get_secret_value()
         if not expected_token:
             raise HTTPException(
@@ -63,8 +64,38 @@ def create_app(
                 detail="invalid caption session token",
             )
 
+    @api.post(CAPTION_ENDPOINT_PATH, status_code=CAPTION_ACCEPTED_STATUS, tags=["captions"])
+    def accept_caption(
+        event: CaptionEvent,
+        caption_store: CaptionStore = Depends(store),
+        configured: Settings = Depends(current_settings),
+        session_token: str | None = Header(default=None, alias=SESSION_TOKEN_HEADER),
+    ) -> dict[str, str]:
+        """Validate, authenticate, and persist one finalized caption event."""
+        _require_session_token(configured, session_token)
+
         accepted = caption_store.add_caption(event)
         return {"event_id": accepted.event_id, "meeting_session_id": accepted.meeting_session_id}
+
+    @api.get(CAPTION_ENDPOINT_PATH, tags=["captions"])
+    def list_captions(
+        meeting_session_id: str,
+        limit: int = 100,
+        caption_store: CaptionStore = Depends(store),
+        configured: Settings = Depends(current_settings),
+        session_token: str | None = Header(default=None, alias=SESSION_TOKEN_HEADER),
+    ) -> list[dict]:
+        """Read back recent captions for one session so the UI can display them live.
+
+        Read-only; never invokes OpenRouter or Jira. Added in Ticket 05 alongside the
+        frozen POST - see the module docstring.
+        """
+        _require_session_token(configured, session_token)
+
+        return [
+            event.model_dump(mode="json")
+            for event in caption_store.recent_captions(meeting_session_id, limit=limit)
+        ]
 
     return api
 

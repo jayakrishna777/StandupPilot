@@ -1,13 +1,21 @@
-"""StandupPilot Streamlit review interface (Ticket 03).
+"""StandupPilot Streamlit review interface (Ticket 03, wired live in Ticket 05).
 
 Meeting captions -> deterministic prefilter -> OpenRouter (or rule-based fallback) ->
-fake Jira reads -> evidence-backed proposal -> reviewer approval -> action result.
+Jira reads -> evidence-backed proposal -> reviewer approval -> action result.
 
-Ticket 03 scope only: storage, the Jira reader, and the reviewer/action services are all
-fakes (`standup_pilot.testing.fakes`); production PostgreSQL, the real Jira adapter, and
-Auth0 wiring are Ticket 05's job behind these same frozen interfaces. The model never
-gets a mutation path - `st.session_state.action_service` (a `StubActionService`) is the
-only thing `Approve` can call.
+Each real integration point is used only when its credentials are configured, and falls
+back to the Ticket 03 fakes otherwise, so the app stays runnable on a workstation that
+hasn't filled in every secret yet:
+
+- Jira reads/writes: `JiraClient` + `SafeActionService` when `settings.jira_configured`,
+  else `FakeJiraReader` + `StubActionService`.
+- Live captions: polls the real `GET/POST /v1/captions` via `agent.live_client` when
+  `settings.caption_ingress_configured`, else a session-local in-memory store.
+- Reviewer identity: Auth0 `st.user` when `settings.auth0_configured`, else a manual
+  text field.
+
+The model never gets a mutation path in any mode - `st.session_state.action_service`
+is the only thing `Approve` can call.
 """
 
 from __future__ import annotations
@@ -19,8 +27,10 @@ import httpx
 import streamlit as st
 import streamlit.runtime as st_runtime
 
+from standup_pilot.actions import SafeActionService
 from standup_pilot.agent.demo_data import seed_demo_jira_reader
 from standup_pilot.agent.interpreter import prefilter_caption, process_next_caption
+from standup_pilot.agent.live_client import fetch_recent_captions, post_caption
 from standup_pilot.agent.openrouter import OpenRouterClient
 from standup_pilot.agent.speech import (
     format_proposal_announcement,
@@ -28,6 +38,7 @@ from standup_pilot.agent.speech import (
     format_result_announcement,
 )
 from standup_pilot.contracts import UI_REFRESH_SECONDS, CaptionEvent
+from standup_pilot.jira import JiraClient, JiraConfigurationError
 from standup_pilot.settings import get_settings
 from standup_pilot.testing.fakes import (
     InMemoryCaptionStore,
@@ -50,6 +61,7 @@ REQUIRED_REGIONS = frozenset(
 )
 
 RUNNING_UNDER_STREAMLIT = st_runtime.exists()
+DEMO_MEETING_SESSION_ID = "demo-session"
 
 st.set_page_config(
     page_title="StandupPilot | Voice-enabled Stand-up Copilot",
@@ -106,19 +118,32 @@ st.markdown(
 )
 
 # -----------------------------------------------------------------------------
-# Session-scoped fakes (Ticket 03 scope). Ticket 05 swaps these for the real
-# PostgreSQL-backed stores, Jira adapter, and Auth0-authorized action service behind
-# the same CaptionStore / ProposalStore / JiraReader / ActionService interfaces.
+# Real adapters when configured, Ticket 03 fakes otherwise. Both sides satisfy the same
+# JiraReader / ActionService interfaces, so nothing below this block needs to know which
+# one is active.
 # -----------------------------------------------------------------------------
 DEFAULT_REVIEWERS = frozenset({"demo@example.com"})
+LIVE_CAPTIONS = RUNNING_UNDER_STREAMLIT and settings.caption_ingress_configured
+LIVE_JIRA = settings.jira_configured
+
+
+def _build_jira_and_action_service(proposal_store: InMemoryProposalStore):
+    if LIVE_JIRA:
+        try:
+            jira = JiraClient(settings)
+            return jira, SafeActionService(proposal_store, jira, settings)
+        except JiraConfigurationError:
+            pass
+    return seed_demo_jira_reader(), StubActionService(
+        settings.reviewers or DEFAULT_REVIEWERS, proposal_store
+    )
 
 
 def _fresh_demo_state() -> None:
     st.session_state.caption_store = InMemoryCaptionStore()
     st.session_state.proposal_store = InMemoryProposalStore()
-    st.session_state.jira_reader = seed_demo_jira_reader()
-    st.session_state.action_service = StubActionService(
-        settings.reviewers or DEFAULT_REVIEWERS, st.session_state.proposal_store
+    st.session_state.jira_reader, st.session_state.action_service = _build_jira_and_action_service(
+        st.session_state.proposal_store
     )
     st.session_state.last_result = None
     st.session_state.last_explanation = None
@@ -137,11 +162,22 @@ if "openrouter_client" not in st.session_state:
         OpenRouterClient(settings) if settings.openrouter_configured else None
     )
 
-# Seed one golden-path caption the first time, through the same pipeline a real caption
-# would use, so the demo has something to review immediately.
-if not st.session_state.caption_store.recent_captions("demo-session") and RUNNING_UNDER_STREAMLIT:
+# Seed one golden-path caption locally the first time, so the demo has something to
+# review immediately. Skipped in live mode, where the transcript should only ever show
+# captions that actually came through the real ingress.
+if (
+    RUNNING_UNDER_STREAMLIT
+    and not LIVE_CAPTIONS
+    and not st.session_state.caption_store.recent_captions(DEMO_MEETING_SESSION_ID)
+):
+    seed_key = settings.jira_demo_issue_key if LIVE_JIRA else "PROJ-123"
+    seed_target = settings.jira_demo_target_status if LIVE_JIRA else "Done"
     st.session_state.caption_store.add_caption(
-        CaptionEvent.create("demo-session", "Alex Chen", "PROJ-123 is complete and ready for Done.")
+        CaptionEvent.create(
+            DEMO_MEETING_SESSION_ID,
+            "Alex Chen",
+            f"{seed_key} is complete and ready for {seed_target}.",
+        )
     )
 
 
@@ -205,10 +241,20 @@ st.markdown(
 # -----------------------------------------------------------------------------
 with st.sidebar:
     st.title("Meeting Controls")
-    session_id = st.text_input("Active meeting session ID", value="demo-session")
-    reviewer_identity = st.text_input(
-        "Reviewer identity (Auth0 login lands in Ticket 05)", value="demo@example.com"
-    )
+    session_id = st.text_input("Active meeting session ID", value=DEMO_MEETING_SESSION_ID)
+
+    if settings.auth0_configured:
+        if not st.user.is_logged_in:
+            st.button("🔐 Log in with Auth0", on_click=st.login, args=("auth0",))
+            reviewer_identity = None
+        else:
+            st.write(f"Signed in as **{st.user.email}**")
+            st.button("Log out", on_click=st.logout)
+            reviewer_identity = st.user.email
+    else:
+        reviewer_identity = st.text_input(
+            "Reviewer identity (set AUTH0_* in .env for real login)", value="demo@example.com"
+        )
 
     st.divider()
     st.subheader("Status")
@@ -219,6 +265,10 @@ with st.sidebar:
     else:
         openrouter_status = "🟡 not configured (rule-based fallback only)"
     st.markdown(f"**OpenRouter**: {openrouter_status}")
+    st.markdown(
+        f"**Jira**: {'🟢 live ' + settings.jira_base_url if LIVE_JIRA else '🟡 demo fixture only'}"
+    )
+    st.markdown(f"**Captions**: {'🟢 live ingress' if LIVE_CAPTIONS else '🟡 local session only'}")
     if time.time() < st.session_state.suppress_until:
         st.markdown("**Listening**: 🔇 paused while StandupPilot speaks")
     else:
@@ -248,6 +298,12 @@ tab_stream, tab_proposals, tab_audit, tab_demo = st.tabs(
 
 @st.fragment(run_every=UI_REFRESH_SECONDS)
 def live_regions() -> None:
+    if LIVE_CAPTIONS:
+        # Mirror the real ingress into the local store; add_caption is idempotent by
+        # event_id, so this is safe to repeat every tick without duplicating anything.
+        for event in fetch_recent_captions(settings, session_id):
+            st.session_state.caption_store.add_caption(event)
+
     suppress = time.time() < st.session_state.suppress_until
     new_proposal, explanation = process_next_caption(
         st.session_state.caption_store,
@@ -308,9 +364,8 @@ def live_regions() -> None:
     # --- proposal + approval controls ---
     with tab_proposals:
         st.subheader("Pending proposal")
-        st.caption(
-            "The model only proposes. Approve/Reject call the fake reviewer and action interfaces."
-        )
+        action_kind = "the real Jira-backed action service" if LIVE_JIRA else "the demo action fake"
+        st.caption(f"The model only proposes. Approve/Reject call {action_kind}.")
         if open_proposal is None:
             st.success("No pending proposal.")
         else:
@@ -426,23 +481,33 @@ live_regions()
 # -----------------------------------------------------------------------------
 with tab_demo:
     st.subheader("Simulate a spoken meeting update")
+    if LIVE_CAPTIONS:
+        st.caption("Live ingress is on: this posts through the real FastAPI endpoint.")
+        demo_key = settings.jira_demo_issue_key or "SP-1"
+        demo_target = settings.jira_demo_target_status or "Done"
+        default_text = f"{demo_key} is complete and ready for {demo_target}."
+    else:
+        st.caption("Live ingress is off: this writes straight into the local session store.")
+        demo_key = "PROJ-123"
+        default_text = "PROJ-123 is complete and ready for Done."
+
     presets = [
-        "Alex Chen: PROJ-123 is complete and ready for Done.",
-        "Sarah Connor: STANDUP-42 code review is finished, ready for Done.",
-        "Dave Miller: JIRA-101 frontend refactoring is in progress.",
+        f"Alex Chen: {default_text}",
         "Custom...",
     ]
     choice = st.selectbox("Preset", presets)
     if choice == "Custom...":
         speaker_in = st.text_input("Speaker label", value="Alex Chen")
-        text_in = st.text_input(
-            "Spoken statement", value="PROJ-123 is complete and ready for Done."
-        )
+        text_in = st.text_input("Spoken statement", value=default_text)
     else:
         speaker_in, text_in = (part.strip() for part in choice.split(":", 1))
 
     if st.button("📡 Stream update", type="primary"):
-        st.session_state.caption_store.add_caption(
-            CaptionEvent.create(session_id, speaker_in, text_in)
-        )
+        if LIVE_CAPTIONS:
+            if post_caption(settings, session_id, speaker_in, text_in) is None:
+                st.error("Could not reach the caption ingress; is FastAPI running?")
+        else:
+            st.session_state.caption_store.add_caption(
+                CaptionEvent.create(session_id, speaker_in, text_in)
+            )
         st.rerun()
